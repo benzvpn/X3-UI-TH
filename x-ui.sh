@@ -2068,6 +2068,7 @@ show_menu() {
       ;;
   esac
   read -p "กด Enter เพื่อกลับเมนูหลัก"
+  show_menu
   ;;
     *)
         LOGE "Please enter the correct number [0-26]"
