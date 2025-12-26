@@ -2587,6 +2587,7 @@ show_menu() {
        32)
       bittorrent_menu
         ;;
+        *)
         LOGE "Please enter the correct number [0-32]"
         ;;
     esac
