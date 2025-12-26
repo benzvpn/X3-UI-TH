@@ -2569,11 +2569,11 @@ show_menu() {
   read -p "กด Enter เพื่อกลับเมนูหลัก"
   show_menu
   ;;
-      27)
-        vpn_stealth_menu
+       27)
+      vpn_stealth_menu
         ;;
-      28)
-        network_routing_menu
+       28)
+      network_routing_menu
         ;;
         29)
       netflix_bypass_menu
@@ -2582,12 +2582,12 @@ show_menu() {
       udp_boost_menu
         ;;
         31)
-anti_ddos_menu
-;;
-32)
-bittorrent_menu
-;;
-        LOGE "Please enter the correct number [0-26]"
+      anti_ddos_menu
+        ;;
+       32)
+      bittorrent_menu
+        ;;
+        LOGE "Please enter the correct number [0-32]"
         ;;
     esac
 }
