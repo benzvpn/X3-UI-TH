@@ -2452,7 +2452,7 @@ show_menu() {
 ╚────────────────────────────────────────────────╝
 "
     show_status
-    echo && read -rp "Please enter your selection [0-25]: " num
+    echo && read -rp "Please enter your selection [0-32]: " num
 
     case "${num}" in
     0)
