@@ -5,7 +5,7 @@ green='\033[0;32m'
 blue='\033[0;34m'
 yellow='\033[0;33m'
 plain='\033[0m'
-
+mkdir -p /etc/x3ui
 #Add some basic function here
 function LOGD() {
     echo -e "${yellow}[DEG] $* ${plain}"
@@ -1891,6 +1891,139 @@ SSH_port_forwarding() {
     esac
 }
 
+vpn_stealth_menu() {
+clear
+echo -e "================================="
+echo -e "   ซ่อน VPN (Mobile Stealth)"
+echo -e "================================="
+echo -e "1) เปิดโหมดซ่อน VPN (TTL Fix)"
+echo -e "2) ปิดโหมดซ่อน VPN"
+echo -e "3) ตรวจสอบสถานะ"
+echo -e "0) กลับ"
+echo -e "================================="
+read -p "เลือกเมนู: " stealth
+case $stealth in
+1) enable_vpn_stealth ;;
+2) disable_vpn_stealth ;;
+3) check_vpn_stealth ;;
+0) anti_ddos_menu ;;
+*) vpn_stealth_menu ;;
+esac
+}
+enable_vpn_stealth() {
+clear
+echo "กำลังเปิดโหมดซ่อน VPN (TTL Fix 64)..."
+
+# ล้าง rules เก่าใน mangle
+iptables -t mangle -F
+
+# บังคับ TTL = 64 (มือถือ)
+iptables -t mangle -A POSTROUTING -j TTL --ttl-set 64
+
+# บันทึก rules
+iptables-save > /etc/iptables.rules
+
+echo "เปิดโหมดซ่อน VPN เรียบร้อย"
+read -p "กด Enter..."
+vpn_stealth_menu
+}
+disable_vpn_stealth() {
+clear
+echo "กำลังปิดโหมดซ่อน VPN..."
+
+iptables -t mangle -F
+iptables-save > /etc/iptables.rules
+
+echo "ปิดโหมดซ่อน VPN เรียบร้อย"
+read -p "กด Enter..."
+vpn_stealth_menu
+}
+check_vpn_stealth() {
+echo "สถานะ TTL (mangle table):"
+iptables -t mangle -L -n -v
+read -p "กด Enter..."
+vpn_stealth_menu
+}
+
+network_routing_menu() {
+clear
+echo "================================="
+echo "      Network & Routing"
+echo "================================="
+echo "1) Bypass Streaming (Concept)"
+echo "0) กลับ"
+echo "================================="
+read -p "เลือกเมนู: " net
+case $net in
+1) bypass_streaming_menu ;;
+0) menu ;;
+*) network_routing_menu ;;
+esac
+}
+bypass_streaming_menu() {
+clear
+echo "================================="
+echo "  Bypass Streaming (Concept)"
+echo "================================="
+echo "1) เปิด Bypass Netflix"
+echo "2) ปิด Bypass Netflix"
+echo "3) ตรวจสอบสถานะ"
+echo "0) กลับ"
+echo "================================="
+read -p "เลือกเมนู: " bp
+case $bp in
+1) enable_bypass_netflix ;;
+2) disable_bypass_netflix ;;
+3) check_bypass_netflix ;;
+0) network_routing_menu ;;
+*) bypass_streaming_menu ;;
+esac
+}
+enable_bypass_netflix() {
+clear
+echo "เปิด Bypass Netflix (Concept Mode)"
+
+cat <<EOF
+
+[แนวคิดการทำงาน]
+- สร้าง routing rule
+- ถ้า destination = Streaming Domain
+- ส่งออก Direct (freedom)
+- ไม่ผ่าน VPN
+
+[ระดับที่ทำจริง]
+- Xray Routing (domainStrategy)
+- Client-side Split Tunnel
+- DNS-based decision
+
+*** เมนูนี้เป็น Concept Only ***
+*** ไม่ได้ใส่ domain จริง ***
+
+EOF
+
+touch /etc/x3ui/bypass_netflix.enabled
+
+echo "บันทึกสถานะ: เปิด (Concept)"
+read -p "กด Enter..."
+bypass_streaming_menu
+}
+disable_bypass_netflix() {
+clear
+rm -f /etc/x3ui/bypass_netflix.enabled
+echo "ปิด Bypass Netflix (Concept)"
+read -p "กด Enter..."
+bypass_streaming_menu
+}
+check_bypass_netflix() {
+echo "สถานะ Bypass Netflix:"
+if [ -f /etc/x3ui/bypass_netflix.enabled ]; then
+  echo "▶ เปิดอยู่ (Concept)"
+else
+  echo "▶ ปิดอยู่"
+fi
+read -p "กด Enter..."
+bypass_streaming_menu
+}
 show_usage() {
     echo -e "┌────────────────────────────────────────────────────────────────┐
 │  ${blue}x-ui control menu usages (subcommands):${plain}                       │
@@ -1912,7 +2045,367 @@ show_usage() {
 │  ${blue}x-ui uninstall${plain}             - Uninstall                        │
 └────────────────────────────────────────────────────────────────┘"
 }
+enable_netflix_bypass() {
+clear
+touch /etc/x3ui/netflix_bypass
 
+echo "เปิด Bypass Netflix เรียบร้อย"
+echo "สถานะถูกบันทึกที่ /etc/x3ui/netflix_bypass"
+echo ""
+echo "หมายเหตุ:"
+echo "- Netflix จะต้องถูกตั้งค่า Bypass ที่ฝั่ง Client"
+echo "- ระบบนี้เป็นตัวควบคุมสถานะ (Flag)"
+read -p "กด Enter..."
+netflix_bypass_menu
+}
+disable_netflix_bypass() {
+clear
+rm -f /etc/x3ui/netflix_bypass
+
+echo "ปิด Bypass Netflix เรียบร้อย"
+read -p "กด Enter..."
+netflix_bypass_menu
+}
+check_netflix_bypass() {
+clear
+if [ -f /etc/x3ui/netflix_bypass ]; then
+  echo "สถานะ: ✅ เปิด Bypass Netflix"
+else
+  echo "สถานะ: ❌ ปิด Bypass Netflix"
+fi
+read -p "กด Enter..."
+netflix_bypass_menu
+}
+netflix_bypass_menu() {
+clear
+echo "================================="
+echo "   Netflix Bypass (Split Tunnel)"
+echo "================================="
+echo "1) เปิด Bypass Netflix"
+echo "2) ปิด Bypass Netflix"
+echo "3) ตรวจสอบสถานะ"
+echo "0) กลับ"
+echo "================================="
+read -p "เลือกเมนู: " nf
+case $nf in
+1) enable_netflix_bypass ;;
+2) disable_netflix_bypass ;;
+3) check_netflix_bypass ;;
+0) menu ;;
+*) netflix_bypass_menu ;;
+esac
+}
+enable_udp_boost() {
+clear
+echo "กำลังเปิด UDP Boost..."
+
+# Queue ลด latency
+sysctl -w net.core.default_qdisc=fq
+
+# TCP (ไม่กระทบ UDP แต่ช่วยเสถียร)
+sysctl -w net.ipv4.tcp_congestion_control=bbr
+
+# UDP Buffer (ลด packet loss)
+sysctl -w net.core.rmem_max=26214400
+sysctl -w net.core.wmem_max=26214400
+sysctl -w net.core.rmem_default=26214400
+sysctl -w net.core.wmem_default=26214400
+
+# ลด throttle UDP
+sysctl -w net.ipv4.udp_mem="65536 131072 262144"
+
+# ICMP (ช่วยเกมบางค่าย)
+sysctl -w net.ipv4.icmp_ratelimit=0
+
+# บันทึกถาวร
+sysctl -p
+
+touch /etc/x3ui/udp_boost
+
+echo "เปิด UDP Boost เรียบร้อย"
+read -p "กด Enter..."
+udp_boost_menu
+}
+disable_udp_boost() {
+clear
+echo "กำลังปิด UDP Boost..."
+
+sysctl -w net.core.default_qdisc=pfifo_fast
+sysctl -w net.ipv4.tcp_congestion_control=cubic
+
+sysctl -w net.core.rmem_max=212992
+sysctl -w net.core.wmem_max=212992
+sysctl -w net.core.rmem_default=212992
+sysctl -w net.core.wmem_default=212992
+
+sysctl -w net.ipv4.udp_mem="4096 87380 6291456"
+sysctl -w net.ipv4.icmp_ratelimit=1000
+
+sysctl -p
+
+rm -f /etc/x3ui/udp_boost
+
+echo "ปิด UDP Boost เรียบร้อย"
+read -p "กด Enter..."
+udp_boost_menu
+}
+check_udp_boost() {
+clear
+echo "สถานะ UDP Boost:"
+if [ -f /etc/x3ui/udp_boost ]; then
+  echo "▶ เปิดอยู่"
+else
+  echo "▶ ปิดอยู่"
+fi
+echo ""
+sysctl net.core.default_qdisc
+sysctl net.ipv4.tcp_congestion_control
+sysctl net.core.rmem_max
+sysctl net.core.wmem_max
+sysctl net.ipv4.udp_mem
+read -p "กด Enter..."
+udp_boost_menu
+}
+udp_boost_menu() {
+clear
+echo "================================="
+echo "   เร่งความเร็ว UDP (Game / Call)"
+echo "================================="
+echo "1) เปิด UDP Boost"
+echo "2) ปิด UDP Boost"
+echo "3) ตรวจสอบสถานะ"
+echo "0) กลับ"
+echo "================================="
+read -p "เลือกเมนู: " udp
+case $udp in
+1) enable_udp_boost ;;
+2) disable_udp_boost ;;
+3) check_udp_boost ;;
+0) show_menu ;;
+*) udp_boost_menu ;;
+esac
+}
+enable_anti_ddos() {
+clear
+echo "กำลังเปิด Anti-DDoS..."
+
+# Flush old rules
+iptables -F
+iptables -X
+
+# Default policy
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# Allow established
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -i lo -j ACCEPT
+
+# Allow SSH
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+
+# Allow Web / Xray
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+
+# SYN Flood Protection
+iptables -N SYN_FLOOD
+iptables -A INPUT -p tcp --syn -j SYN_FLOOD
+iptables -A SYN_FLOOD -m limit --limit 10/s --limit-burst 20 -j RETURN
+iptables -A SYN_FLOOD -j DROP
+
+# Connection limit per IP
+iptables -A INPUT -p tcp -m connlimit --connlimit-above 30 -j DROP
+
+# ICMP limit (ping flood)
+iptables -A INPUT -p icmp -m limit --limit 1/s -j ACCEPT
+iptables -A INPUT -p icmp -j DROP
+
+# Save rules
+iptables-save > /etc/iptables.rules
+touch /etc/x3ui/anti_ddos
+
+echo "เปิด Anti-DDoS เรียบร้อย"
+read -p "กด Enter..."
+anti_ddos_menu
+}
+enable_anti_ddos() {
+clear
+echo "กำลังเปิด Anti-DDoS..."
+
+# Flush old rules
+iptables -F
+iptables -X
+
+# Default policy
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# Allow established
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -i lo -j ACCEPT
+
+# Allow SSH
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+
+# Allow Web / Xray
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+
+# SYN Flood Protection
+iptables -N SYN_FLOOD
+iptables -A INPUT -p tcp --syn -j SYN_FLOOD
+iptables -A SYN_FLOOD -m limit --limit 10/s --limit-burst 20 -j RETURN
+iptables -A SYN_FLOOD -j DROP
+
+# Connection limit per IP
+iptables -A INPUT -p tcp -m connlimit --connlimit-above 30 -j DROP
+
+# ICMP limit (ping flood)
+iptables -A INPUT -p icmp -m limit --limit 1/s -j ACCEPT
+iptables -A INPUT -p icmp -j DROP
+
+# Save rules
+iptables-save > /etc/iptables.rules
+touch /etc/x3ui/anti_ddos
+
+echo "เปิด Anti-DDoS เรียบร้อย"
+read -p "กด Enter..."
+anti_ddos_menu
+}
+disable_anti_ddos() {
+clear
+echo "กำลังปิด Anti-DDoS..."
+
+iptables -F
+iptables -X
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+rm -f /etc/x3ui/anti_ddos
+iptables-save > /etc/iptables.rules
+
+echo "ปิด Anti-DDoS เรียบร้อย"
+read -p "กด Enter..."
+anti_ddos_menu
+}
+check_anti_ddos() {
+clear
+if [ -f /etc/x3ui/anti_ddos ]; then
+  echo "สถานะ: ✅ Anti-DDoS เปิดอยู่"
+else
+  echo "สถานะ: ❌ Anti-DDoS ปิดอยู่"
+fi
+echo ""
+iptables -L -n -v --line-numbers
+read -p "กด Enter..."
+anti_ddos_menu
+}
+anti_ddos_menu() {
+clear
+echo "================================="
+echo "        Anti-DDoS Protection"
+echo "================================="
+echo "1) เปิด Anti-DDoS"
+echo "2) ปิด Anti-DDoS"
+echo "3) ตรวจสอบสถานะ"
+echo "0) กลับ"
+echo "================================="
+read -p "เลือกเมนู: " dd
+case $dd in
+1) enable_anti_ddos ;;
+2) disable_anti_ddos ;;
+3) check_anti_ddos ;;
+0) menu ;;
+*) anti_ddos_menu ;;
+esac
+}
+enable_bt() {
+clear
+echo "กำลังเปิดบล็อก BitTorrent..."
+
+# ล้างของเก่า
+iptables -D FORWARD -j BT_BLOCK 2>/dev/null
+iptables -D OUTPUT  -j BT_BLOCK 2>/dev/null
+iptables -F BT_BLOCK 2>/dev/null
+iptables -X BT_BLOCK 2>/dev/null
+
+# สร้าง chain
+iptables -N BT_BLOCK
+
+# Signature ของ BitTorrent
+iptables -A BT_BLOCK -m string --algo bm --string "BitTorrent" -j DROP
+iptables -A BT_BLOCK -m string --algo bm --string "peer_id=" -j DROP
+iptables -A BT_BLOCK -m string --algo bm --string ".torrent" -j DROP
+iptables -A BT_BLOCK -m string --algo bm --string "announce" -j DROP
+iptables -A BT_BLOCK -m string --algo bm --string "info_hash" -j DROP
+
+# Port ที่ใช้บ่อย
+iptables -A BT_BLOCK -p tcp --dport 6881:6999 -j DROP
+iptables -A BT_BLOCK -p udp --dport 6881:6999 -j DROP
+
+# Apply
+iptables -A FORWARD -j BT_BLOCK
+iptables -A OUTPUT  -j BT_BLOCK
+
+# สถานะ
+touch /etc/x3ui/bittorrent_block
+iptables-save > /etc/iptables.rules
+
+echo "เปิดบล็อก BitTorrent เรียบร้อย"
+read -p "กด Enter..."
+bittorrent_menu
+}
+disable_bt() {
+clear
+echo "กำลังปิดบล็อก BitTorrent..."
+
+iptables -D FORWARD -j BT_BLOCK 2>/dev/null
+iptables -D OUTPUT  -j BT_BLOCK 2>/dev/null
+iptables -F BT_BLOCK 2>/dev/null
+iptables -X BT_BLOCK 2>/dev/null
+
+rm -f /etc/x3ui/bittorrent_block
+iptables-save > /etc/iptables.rules
+
+echo "ปิดบล็อก BitTorrent เรียบร้อย"
+read -p "กด Enter..."
+bittorrent_menu
+}
+check_bt() {
+clear
+if [ -f /etc/x3ui/bittorrent_block ]; then
+  echo "สถานะ: ✅ บล็อก BitTorrent เปิดอยู่"
+else
+  echo "สถานะ: ❌ ยังไม่เปิดบล็อก BitTorrent"
+fi
+echo ""
+iptables -L BT_BLOCK -n -v 2>/dev/null
+read -p "กด Enter..."
+bittorrent_menu
+}
+bittorrent_menu() {
+clear
+echo "================================="
+echo "   Block BitTorrent Protection"
+echo "================================="
+echo "1) เปิดบล็อก BitTorrent"
+echo "2) ปิดบล็อก BitTorrent"
+echo "3) ตรวจสอบสถานะ"
+echo "0) กลับ"
+echo "================================="
+read -p "เลือกเมนู: " bt
+case $bt in
+1) enable_bt ;;
+2) disable_bt ;;
+3) check_bt ;;
+0) show_menu ;;
+*) bittorrent_menu ;;
+esac
+}
 show_menu() {
     echo -e "
 ╔────────────────────────────────────────────────╗
@@ -1950,6 +2443,12 @@ show_menu() {
 │  ${green}24.${plain} Update Geo Files                          │
 │  ${green}25.${plain} Speedtest by Ookla                        │
 │  ${green}26.${plain} Auto Reboot VPS                        │
+│  ${green}27.${plain} ซ่อน VPN (Mobile Stealth Mode)                        │
+│  ${green}28.${plain} Bypass Network & Routing        │
+│  ${green}29.${plain} Netflix Bypass (Split Tunnel)         │
+│  ${green}30.${plain} เร่งความเร็ว UDP (Game / Call)         │
+│  ${green}31.${plain} ป้องกัน Anti-DDoS Protection         │
+│  ${green}32.${plain} บล็อก BitTorrent (กัน IP โดนแบน)         │
 ╚────────────────────────────────────────────────╝
 "
     show_status
@@ -2070,7 +2569,24 @@ show_menu() {
   read -p "กด Enter เพื่อกลับเมนูหลัก"
   show_menu
   ;;
-    *)
+      27)
+        vpn_stealth_menu
+        ;;
+      28)
+        network_routing_menu
+        ;;
+        29)
+      netflix_bypass_menu
+        ;;
+        30)
+      udp_boost_menu
+        ;;
+        31)
+anti_ddos_menu
+;;
+32)
+bittorrent_menu
+;;
         LOGE "Please enter the correct number [0-26]"
         ;;
     esac
