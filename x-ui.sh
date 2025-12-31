@@ -2406,6 +2406,115 @@ case $bt in
 *) bittorrent_menu ;;
 esac
 }
+disable_firewall() {
+clear
+echo -e "🔴 กำลังปิด Firewall..."
+
+ufw disable >/dev/null 2>&1
+systemctl stop ufw >/dev/null 2>&1
+systemctl disable ufw >/dev/null 2>&1
+
+systemctl stop firewalld >/dev/null 2>&1
+systemctl disable firewalld >/dev/null 2>&1
+
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t mangle -F
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+ip6tables -F >/dev/null 2>&1
+ip6tables -P INPUT ACCEPT >/dev/null 2>&1
+ip6tables -P FORWARD ACCEPT >/dev/null 2>&1
+ip6tables -P OUTPUT ACCEPT >/dev/null 2>&1
+
+systemctl stop netfilter-persistent >/dev/null 2>&1
+systemctl disable netfilter-persistent >/dev/null 2>&1
+
+echo -e "✅ ปิด Firewall เรียบร้อยแล้ว"
+sleep 2
+firewall_menu
+}
+enable_firewall() {
+clear
+echo -e "🟢 กำลังเปิด Firewall..."
+
+ufw reset -y
+ufw default deny incoming
+ufw default allow outgoing
+
+# SSH
+ufw allow 22/tcp
+
+# Web
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 55/tcp
+
+# Xray (ตัวอย่าง)
+ufw allow 443
+ufw allow 8080
+ufw allow 8443
+ufw allow 2053
+ufw allow 2083
+
+ufw --force enable
+
+systemctl enable ufw >/dev/null 2>&1
+systemctl start ufw >/dev/null 2>&1
+
+echo -e "✅ เปิด Firewall เรียบร้อยแล้ว"
+sleep 2
+firewall_menu
+}
+check_firewall() {
+clear
+echo -e "🔍 สถานะ Firewall"
+echo -e "━━━━━━━━━━━━━━━━━━━━"
+echo -e "📌 UFW Status:"
+ufw status
+echo ""
+echo -e "📌 IPTABLES:"
+iptables -L -n
+echo ""
+read -p "กด Enter เพื่อกลับ..."
+firewall_menu
+}
+firewall_menu() {
+clear
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e " 🔥 จัดการ Firewall (UFW / IPTABLES)"
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e " [1] 🔴 ปิด Firewall ทั้งหมด"
+echo -e " [2] 🟢 เปิด Firewall (อนุญาต SSH / Xray)"
+echo -e " [3] 🔍 ตรวจสอบสถานะ Firewall"
+echo -e " [0] ↩ กลับเมนูหลัก"
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+read -p " เลือกเมนู : " fw
+
+case $fw in
+1)
+disable_firewall
+;;
+2)
+enable_firewall
+;;
+3)
+check_firewall
+;;
+0)
+show_menu
+;;
+*)
+echo "❌ เลือกไม่ถูกต้อง"
+sleep 1
+firewall_menu
+;;
+esac
+}
+
 show_menu() {
     echo -e "
 ╔────────────────────────────────────────────────╗
@@ -2442,17 +2551,18 @@ show_menu() {
 │  ${green}23.${plain} Enable BBR                                │
 │  ${green}24.${plain} Update Geo Files                          │
 │  ${green}25.${plain} Speedtest by Ookla                        │
-│  ${green}26.${plain} Auto Reboot VPS                        │
-│  ${green}27.${plain} ซ่อน VPN (Mobile Stealth Mode)                        │
-│  ${green}28.${plain} Bypass Network & Routing        │
-│  ${green}29.${plain} Netflix Bypass (Split Tunnel)         │
-│  ${green}30.${plain} เร่งความเร็ว UDP (Game / Call)         │
-│  ${green}31.${plain} ป้องกัน Anti-DDoS Protection         │
-│  ${green}32.${plain} บล็อก BitTorrent (กัน IP โดนแบน)         │
+│  ${green}26.${plain} Auto Reboot VPS                           │
+│  ${green}27.${plain} ซ่อน VPN (Mobile Stealth Mode)           │
+│  ${green}28.${plain} Bypass Network & Routing                 │
+│  ${green}29.${plain} Netflix Bypass (Split Tunnel)               │
+│  ${green}30.${plain} เร่งความเร็ว UDP (Game / Call)             │
+│  ${green}31.${plain} ป้องกัน Anti-DDoS Protection               │
+│  ${green}32.${plain} บล็อก BitTorrent (กัน IP โดนแบน)           │
+│  ${green}33.${plain} 🔥 เปิด/ปิด Firewall                        │
 ╚────────────────────────────────────────────────╝
 "
     show_status
-    echo && read -rp "Please enter your selection [0-32]: " num
+    echo && read -rp "Please enter your selection [0-33]: " num
 
     case "${num}" in
     0)
@@ -2587,8 +2697,11 @@ show_menu() {
        32)
       bittorrent_menu
         ;;
+        33)
+      firewall_menu
+        ;;
         *)
-        LOGE "Please enter the correct number [0-32]"
+        LOGE "Please enter the correct number [0-33]"
         ;;
     esac
 }
