@@ -5,7 +5,7 @@ green='\033[0;32m'
 blue='\033[0;34m'
 yellow='\033[0;33m'
 plain='\033[0m'
-mkdir -p /etc/x3ui
+
 #Add some basic function here
 function LOGD() {
     echo -e "${yellow}[DEG] $* ${plain}"
@@ -17,6 +17,20 @@ function LOGE() {
 
 function LOGI() {
     echo -e "${green}[INF] $* ${plain}"
+}
+
+# Simple helpers for domain/IP validation
+is_ipv4() {
+    [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && return 0 || return 1
+}
+is_ipv6() {
+    [[ "$1" =~ : ]] && return 0 || return 1
+}
+is_ip() {
+    is_ipv4 "$1" || is_ipv6 "$1"
+}
+is_domain() {
+    [[ "$1" =~ ^([A-Za-z0-9](-*[A-Za-z0-9])*\.)+[A-Za-z]{2,}$ ]] && return 0 || return 1
 }
 
 # check root
@@ -74,7 +88,7 @@ before_show_menu() {
 }
 
 install() {
-    bash <(curl -Ls https://raw.githubusercontent.com/benzvpn/X3-UI-TH/refs/heads/main/install.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/install.sh)
     if [[ $? == 0 ]]; then
         if [[ $# == 0 ]]; then
             start
@@ -111,7 +125,7 @@ update_menu() {
         return 0
     fi
 
-    wget -O /usr/bin/x-ui https://raw.githubusercontent.com/benzvpn/X3-UI-TH/refs/heads/main/x-ui.sh
+    wget -O /usr/bin/x-ui https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh
     chmod +x /usr/local/x-ui/x-ui.sh
     chmod +x /usr/bin/x-ui
 
@@ -133,7 +147,7 @@ legacy_version() {
         exit 1
     fi
     # Use the entered panel version in the download link
-    install_command="bash <(curl -Ls "https://raw.githubusercontent.com/benzvpn/X3-UI-TH/refs/heads/main/install.sh") v$tag_version"
+    install_command="bash <(curl -Ls "https://raw.githubusercontent.com/mhsanaei/3x-ui/v$tag_version/install.sh") v$tag_version"
 
     echo "Downloading and installing panel version $tag_version..."
     eval $install_command
@@ -213,6 +227,57 @@ gen_random_string() {
     echo "$random_string"
 }
 
+# Generate and configure a self-signed SSL certificate
+setup_self_signed_certificate() {
+    local name="$1"   # domain or IP to place in SAN
+    local certDir="/root/cert/selfsigned"
+
+    LOGI "Generating a self-signed certificate (not publicly trusted)..."
+
+    mkdir -p "$certDir"
+
+    local sanExt=""
+    if [[ "$name" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ || "$name" =~ : ]]; then
+        sanExt="IP:${name}"
+    else
+        sanExt="DNS:${name}"
+    fi
+
+    openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+        -keyout "${certDir}/privkey.pem" \
+        -out "${certDir}/fullchain.pem" \
+        -subj "/CN=${name}" \
+        -addext "subjectAltName=${sanExt}" >/dev/null 2>&1
+
+    if [[ $? -ne 0 ]]; then
+        local tmpCfg="${certDir}/openssl.cnf"
+        cat > "$tmpCfg" <<EOF
+[req]
+distinguished_name=req_distinguished_name
+req_extensions=v3_req
+[req_distinguished_name]
+[v3_req]
+subjectAltName=${sanExt}
+EOF
+        openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+            -keyout "${certDir}/privkey.pem" \
+            -out "${certDir}/fullchain.pem" \
+            -subj "/CN=${name}" \
+            -config "$tmpCfg" -extensions v3_req >/dev/null 2>&1
+        rm -f "$tmpCfg"
+    fi
+
+    if [[ ! -f "${certDir}/fullchain.pem" || ! -f "${certDir}/privkey.pem" ]]; then
+        LOGE "Failed to generate self-signed certificate"
+        return 1
+    fi
+
+    chmod 755 ${certDir}/* >/dev/null 2>&1
+    /usr/local/x-ui/x-ui cert -webCert "${certDir}/fullchain.pem" -webCertKey "${certDir}/privkey.pem" >/dev/null 2>&1
+    LOGI "Self-signed certificate configured. Browsers will show a warning."
+    return 0
+}
+
 reset_webbasepath() {
     echo -e "${yellow}Resetting Web Base Path${plain}"
 
@@ -256,7 +321,7 @@ check_config() {
 
     local existing_webBasePath=$(echo "$info" | grep -Eo 'webBasePath: .+' | awk '{print $2}')
     local existing_port=$(echo "$info" | grep -Eo 'port: .+' | awk '{print $2}')
-    local existing_cert=$(/usr/local/x-ui/x-ui setting -getCert true | grep -Eo 'cert: .+' | awk '{print $2}')
+    local existing_cert=$(/usr/local/x-ui/x-ui setting -getCert true | grep 'cert:' | awk -F': ' '{print $2}' | tr -d '[:space:]')
     local server_ip=$(curl -s --max-time 3 https://api.ipify.org)
     if [ -z "$server_ip" ]; then
         server_ip=$(curl -s --max-time 3 https://4.ident.me)
@@ -271,7 +336,22 @@ check_config() {
             echo -e "${green}Access URL: https://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
         fi
     else
-        echo -e "${green}Access URL: http://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
+        echo -e "${red}⚠ WARNING: No SSL certificate configured!${plain}"
+        read -rp "Generate a self-signed SSL certificate now? [y/N]: " gen_self
+        if [[ "$gen_self" == "y" || "$gen_self" == "Y" ]]; then
+            stop >/dev/null 2>&1
+            setup_self_signed_certificate "${server_ip}"
+            if [[ $? -eq 0 ]]; then
+                restart >/dev/null 2>&1
+                echo -e "${green}Access URL: https://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
+            else
+                LOGE "Self-signed SSL setup failed."
+                echo -e "${yellow}You can try again via option 18 (SSL Certificate Management).${plain}"
+            fi
+        else
+            echo -e "${yellow}Access URL: http://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
+            echo -e "${yellow}For security, please configure SSL certificate using option 18 (SSL Certificate Management)${plain}"
+        fi
     fi
 }
 
@@ -958,6 +1038,7 @@ ssl_cert_issue_main() {
     echo -e "${green}\t3.${plain} Force Renew"
     echo -e "${green}\t4.${plain} Show Existing Domains"
     echo -e "${green}\t5.${plain} Set Cert paths for the panel"
+    echo -e "${green}\t6.${plain} Auto SSL for Server IP"
     echo -e "${green}\t0.${plain} Back to Main Menu"
 
     read -rp "Choose an option: " choice
@@ -1051,12 +1132,150 @@ ssl_cert_issue_main() {
         fi
         ssl_cert_issue_main
         ;;
+    6)
+        echo -e "${yellow}Automatic SSL Certificate for Server IP${plain}"
+        echo -e "This will automatically obtain and configure an SSL certificate for your server's IP address."
+        echo -e "${yellow}Note: Let's Encrypt supports IP certificates. Make sure port 80 is open.${plain}"
+        confirm "Do you want to proceed?" "y"
+        if [[ $? == 0 ]]; then
+            ssl_cert_issue_for_ip
+        fi
+        ssl_cert_issue_main
+        ;;
 
     *)
         echo -e "${red}Invalid option. Please select a valid number.${plain}\n"
         ssl_cert_issue_main
         ;;
     esac
+}
+
+ssl_cert_issue_for_ip() {
+    LOGI "Starting automatic SSL certificate generation for server IP..."
+    
+    local existing_webBasePath=$(/usr/local/x-ui/x-ui setting -show true | grep -Eo 'webBasePath: .+' | awk '{print $2}')
+    local existing_port=$(/usr/local/x-ui/x-ui setting -show true | grep -Eo 'port: .+' | awk '{print $2}')
+    
+    # Get server IP
+    local server_ip=$(curl -s --max-time 3 https://api.ipify.org)
+    if [ -z "$server_ip" ]; then
+        server_ip=$(curl -s --max-time 3 https://4.ident.me)
+    fi
+    
+    if [ -z "$server_ip" ]; then
+        LOGE "Failed to get server IP address"
+        return 1
+    fi
+    
+    LOGI "Server IP detected: ${server_ip}"
+    
+    # check for acme.sh first
+    if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
+        LOGI "acme.sh not found, installing..."
+        install_acme
+        if [ $? -ne 0 ]; then
+            LOGE "Failed to install acme.sh"
+            return 1
+        fi
+    fi
+    
+    # install socat
+    case "${release}" in
+    ubuntu | debian | armbian)
+        apt-get update >/dev/null 2>&1 && apt-get install socat -y >/dev/null 2>&1
+        ;;
+    fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol)
+        dnf -y update >/dev/null 2>&1 && dnf -y install socat >/dev/null 2>&1
+        ;;
+    centos)
+        if [[ "${VERSION_ID}" =~ ^7 ]]; then
+            yum -y update >/dev/null 2>&1 && yum -y install socat >/dev/null 2>&1
+        else
+            dnf -y update >/dev/null 2>&1 && dnf -y install socat >/dev/null 2>&1
+        fi
+        ;;
+    arch | manjaro | parch)
+        pacman -Sy --noconfirm socat >/dev/null 2>&1
+        ;;
+    opensuse-tumbleweed | opensuse-leap)
+        zypper refresh >/dev/null 2>&1 && zypper -q install -y socat >/dev/null 2>&1
+        ;;
+    alpine)
+        apk add socat curl openssl >/dev/null 2>&1
+        ;;
+    *)
+        LOGW "Unsupported OS for automatic socat installation"
+        ;;
+    esac
+    
+    # check if certificate already exists for this IP
+    local currentCert=$(~/.acme.sh/acme.sh --list | tail -1 | awk '{print $1}')
+    if [ "${currentCert}" == "${server_ip}" ]; then
+        LOGI "Certificate already exists for IP: ${server_ip}"
+        certPath="/root/cert/${server_ip}"
+    else
+        # create directory for certificate
+        certPath="/root/cert/${server_ip}"
+        if [ ! -d "$certPath" ]; then
+            mkdir -p "$certPath"
+        else
+            rm -rf "$certPath"
+            mkdir -p "$certPath"
+        fi
+        
+        # Use port 80 for certificate issuance
+        local WebPort=80
+        LOGI "Using port ${WebPort} to issue certificate for IP: ${server_ip}"
+        LOGI "Make sure port ${WebPort} is open and not in use..."
+        
+        # issue the certificate for IP
+        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        ~/.acme.sh/acme.sh --issue -d ${server_ip} --listen-v6 --standalone --httpport ${WebPort} --force
+        if [ $? -ne 0 ]; then
+            LOGE "Failed to issue certificate for IP: ${server_ip}"
+            LOGE "Make sure port ${WebPort} is open and the server is accessible from the internet"
+            rm -rf ~/.acme.sh/${server_ip}
+            return 1
+        else
+            LOGI "Certificate issued successfully for IP: ${server_ip}"
+        fi
+        
+        # install the certificate
+        ~/.acme.sh/acme.sh --installcert -d ${server_ip} \
+            --key-file /root/cert/${server_ip}/privkey.pem \
+            --fullchain-file /root/cert/${server_ip}/fullchain.pem \
+            --reloadcmd "x-ui restart"
+        
+        if [ $? -ne 0 ]; then
+            LOGE "Failed to install certificate"
+            rm -rf ~/.acme.sh/${server_ip}
+            return 1
+        else
+            LOGI "Certificate installed successfully"
+        fi
+        
+        # enable auto-renew
+        ~/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1
+        chmod 755 $certPath/*
+    fi
+    
+    # Set certificate paths for the panel
+    local webCertFile="/root/cert/${server_ip}/fullchain.pem"
+    local webKeyFile="/root/cert/${server_ip}/privkey.pem"
+    
+    if [[ -f "$webCertFile" && -f "$webKeyFile" ]]; then
+        /usr/local/x-ui/x-ui cert -webCert "$webCertFile" -webCertKey "$webKeyFile"
+        LOGI "Certificate configured for panel"
+        LOGI "  - Certificate File: $webCertFile"
+        LOGI "  - Private Key File: $webKeyFile"
+        echo -e "${green}Access URL: https://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
+        LOGI "Panel will restart to apply SSL certificate..."
+        restart
+        return 0
+    else
+        LOGE "Certificate files not found after installation"
+        return 1
+    fi
 }
 
 ssl_cert_issue() {
@@ -1072,33 +1291,32 @@ ssl_cert_issue() {
         fi
     fi
 
-    # install socat second
+    # install socat
     case "${release}" in
     ubuntu | debian | armbian)
-        apt-get update && apt-get install socat -y
+        apt-get update >/dev/null 2>&1 && apt-get install socat -y >/dev/null 2>&1
         ;;
     fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol)
-        dnf -y update && dnf -y install socat
+        dnf -y update >/dev/null 2>&1 && dnf -y install socat >/dev/null 2>&1
         ;;
     centos)
-            if [[ "${VERSION_ID}" =~ ^7 ]]; then
-                yum -y update && yum -y install socat
-            else
-                dnf -y update && dnf -y install socat
-            fi
+        if [[ "${VERSION_ID}" =~ ^7 ]]; then
+            yum -y update >/dev/null 2>&1 && yum -y install socat >/dev/null 2>&1
+        else
+            dnf -y update >/dev/null 2>&1 && dnf -y install socat >/dev/null 2>&1
+        fi
         ;;
     arch | manjaro | parch)
-        pacman -Sy --noconfirm socat
+        pacman -Sy --noconfirm socat >/dev/null 2>&1
         ;;
-	opensuse-tumbleweed | opensuse-leap)
-        zypper refresh && zypper -q install -y socat
+    opensuse-tumbleweed | opensuse-leap)
+        zypper refresh >/dev/null 2>&1 && zypper -q install -y socat >/dev/null 2>&1
         ;;
     alpine)
-        apk add socat curl openssl
+        apk add socat curl openssl >/dev/null 2>&1
         ;;
     *)
-        echo -e "${red}Unsupported operating system. Please check the script and install the necessary packages manually.${plain}\n"
-        exit 1
+        LOGW "Unsupported OS for automatic socat installation"
         ;;
     esac
     if [ $? -ne 0 ]; then
@@ -1110,7 +1328,22 @@ ssl_cert_issue() {
 
     # get the domain here, and we need to verify it
     local domain=""
-    read -rp "Please enter your domain name: " domain
+    while true; do
+        read -rp "Please enter your domain name: " domain
+        domain="${domain// /}"  # Trim whitespace
+        
+        if [[ -z "$domain" ]]; then
+            LOGE "Domain name cannot be empty. Please try again."
+            continue
+        fi
+        
+        if ! is_domain "$domain"; then
+            LOGE "Invalid domain format: ${domain}. Please enter a valid domain name."
+            continue
+        fi
+        
+        break
+    done
     LOGD "Your domain is: ${domain}, checking it..."
 
     # check if there already exists a certificate
@@ -1890,139 +2123,70 @@ SSH_port_forwarding() {
         ;;
     esac
 }
-
-vpn_stealth_menu() {
+auto_reboot_menu() {
 clear
-echo -e "================================="
-echo -e "   ซ่อน VPN (Mobile Stealth)"
-echo -e "================================="
-echo -e "1) เปิดโหมดซ่อน VPN (TTL Fix)"
-echo -e "2) ปิดโหมดซ่อน VPN"
-echo -e "3) ตรวจสอบสถานะ"
-echo -e "0) กลับ"
-echo -e "================================="
-read -p "เลือกเมนู: " stealth
-case $stealth in
-1) enable_vpn_stealth ;;
-2) disable_vpn_stealth ;;
-3) check_vpn_stealth ;;
-0) anti_ddos_menu ;;
-*) vpn_stealth_menu ;;
-esac
-}
-enable_vpn_stealth() {
-clear
-echo "กำลังเปิดโหมดซ่อน VPN (TTL Fix 64)..."
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "     AUTO REBOOT SERVER"
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e " 1) เปิด Auto Reboot (03:00)"
+echo -e " 2) เปิด Auto Reboot (05:00)"
+echo -e " 3) เปิด Auto Reboot (03:00 + 05:00)"
+echo -e " 4) ปิด Auto Reboot"
+echo -e " 5) ตรวจสอบสถานะ"
+echo -e " 0) กลับเมนูหลัก"
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+read -p "เลือกเมนู : " ar
+echo ""
 
-# ล้าง rules เก่าใน mangle
-iptables -t mangle -F
-
-# บังคับ TTL = 64 (มือถือ)
-iptables -t mangle -A POSTROUTING -j TTL --ttl-set 64
-
-# บันทึก rules
-iptables-save > /etc/iptables.rules
-
-echo "เปิดโหมดซ่อน VPN เรียบร้อย"
-read -p "กด Enter..."
-vpn_stealth_menu
-}
-disable_vpn_stealth() {
-clear
-echo "กำลังปิดโหมดซ่อน VPN..."
-
-iptables -t mangle -F
-iptables-save > /etc/iptables.rules
-
-echo "ปิดโหมดซ่อน VPN เรียบร้อย"
-read -p "กด Enter..."
-vpn_stealth_menu
-}
-check_vpn_stealth() {
-echo "สถานะ TTL (mangle table):"
-iptables -t mangle -L -n -v
-read -p "กด Enter..."
-vpn_stealth_menu
-}
-
-network_routing_menu() {
-clear
-echo "================================="
-echo "      Network & Routing"
-echo "================================="
-echo "1) Bypass Streaming (Concept)"
-echo "0) กลับ"
-echo "================================="
-read -p "เลือกเมนู: " net
-case $net in
-1) bypass_streaming_menu ;;
-0) menu ;;
-*) network_routing_menu ;;
-esac
-}
-bypass_streaming_menu() {
-clear
-echo "================================="
-echo "  Bypass Streaming (Concept)"
-echo "================================="
-echo "1) เปิด Bypass Netflix"
-echo "2) ปิด Bypass Netflix"
-echo "3) ตรวจสอบสถานะ"
-echo "0) กลับ"
-echo "================================="
-read -p "เลือกเมนู: " bp
-case $bp in
-1) enable_bypass_netflix ;;
-2) disable_bypass_netflix ;;
-3) check_bypass_netflix ;;
-0) network_routing_menu ;;
-*) bypass_streaming_menu ;;
-esac
-}
-enable_bypass_netflix() {
-clear
-echo "เปิด Bypass Netflix (Concept Mode)"
-
-cat <<EOF
-
-[แนวคิดการทำงาน]
-- สร้าง routing rule
-- ถ้า destination = Streaming Domain
-- ส่งออก Direct (freedom)
-- ไม่ผ่าน VPN
-
-[ระดับที่ทำจริง]
-- Xray Routing (domainStrategy)
-- Client-side Split Tunnel
-- DNS-based decision
-
-*** เมนูนี้เป็น Concept Only ***
-*** ไม่ได้ใส่ domain จริง ***
-
+case $ar in
+1)
+cat >/etc/cron.d/x3ui-autoreboot <<EOF
+0 3 * * * root /sbin/reboot
 EOF
+echo "✅ เปิด Auto Reboot เวลา 03:00 น. สำเร็จ"
+;;
 
-touch /etc/x3ui/bypass_netflix.enabled
+2)
+cat >/etc/cron.d/x3ui-autoreboot <<EOF
+0 5 * * * root /sbin/reboot
+EOF
+echo "✅ เปิด Auto Reboot เวลา 05:00 น. สำเร็จ"
+;;
 
-echo "บันทึกสถานะ: เปิด (Concept)"
-read -p "กด Enter..."
-bypass_streaming_menu
-}
-disable_bypass_netflix() {
-clear
-rm -f /etc/x3ui/bypass_netflix.enabled
-echo "ปิด Bypass Netflix (Concept)"
-read -p "กด Enter..."
-bypass_streaming_menu
-}
-check_bypass_netflix() {
-echo "สถานะ Bypass Netflix:"
-if [ -f /etc/x3ui/bypass_netflix.enabled ]; then
-  echo "▶ เปิดอยู่ (Concept)"
+3)
+cat >/etc/cron.d/x3ui-autoreboot <<EOF
+0 3 * * * root /sbin/reboot
+0 5 * * * root /sbin/reboot
+EOF
+echo "✅ เปิด Auto Reboot เวลา 03:00 และ 05:00 น."
+;;
+
+4)
+rm -f /etc/cron.d/x3ui-autoreboot
+echo "❌ ปิด Auto Reboot เรียบร้อย"
+;;
+
+5)
+if [ -f /etc/cron.d/x3ui-autoreboot ]; then
+echo "📌 สถานะ : เปิดใช้งาน"
+cat /etc/cron.d/x3ui-autoreboot
 else
-  echo "▶ ปิดอยู่"
+echo "📌 สถานะ : ปิดใช้งาน"
 fi
-read -p "กด Enter..."
-bypass_streaming_menu
+;;
+
+0)
+show_menu
+;;
+
+*)
+echo "❌ เลือกไม่ถูกต้อง"
+;;
+esac
+
+echo ""
+read -p "กด Enter เพื่อกลับ..." 
+auto_reboot_menu
 }
 show_usage() {
     echo -e "┌────────────────────────────────────────────────────────────────┐
@@ -2044,520 +2208,6 @@ show_usage() {
 │  ${blue}x-ui install${plain}               - Install                          │
 │  ${blue}x-ui uninstall${plain}             - Uninstall                        │
 └────────────────────────────────────────────────────────────────┘"
-}
-enable_netflix_bypass() {
-clear
-touch /etc/x3ui/netflix_bypass
-
-echo "เปิด Bypass Netflix เรียบร้อย"
-echo "สถานะถูกบันทึกที่ /etc/x3ui/netflix_bypass"
-echo ""
-echo "หมายเหตุ:"
-echo "- Netflix จะต้องถูกตั้งค่า Bypass ที่ฝั่ง Client"
-echo "- ระบบนี้เป็นตัวควบคุมสถานะ (Flag)"
-read -p "กด Enter..."
-netflix_bypass_menu
-}
-disable_netflix_bypass() {
-clear
-rm -f /etc/x3ui/netflix_bypass
-
-echo "ปิด Bypass Netflix เรียบร้อย"
-read -p "กด Enter..."
-netflix_bypass_menu
-}
-check_netflix_bypass() {
-clear
-if [ -f /etc/x3ui/netflix_bypass ]; then
-  echo "สถานะ: ✅ เปิด Bypass Netflix"
-else
-  echo "สถานะ: ❌ ปิด Bypass Netflix"
-fi
-read -p "กด Enter..."
-netflix_bypass_menu
-}
-netflix_bypass_menu() {
-clear
-echo "================================="
-echo "   Netflix Bypass (Split Tunnel)"
-echo "================================="
-echo "1) เปิด Bypass Netflix"
-echo "2) ปิด Bypass Netflix"
-echo "3) ตรวจสอบสถานะ"
-echo "0) กลับ"
-echo "================================="
-read -p "เลือกเมนู: " nf
-case $nf in
-1) enable_netflix_bypass ;;
-2) disable_netflix_bypass ;;
-3) check_netflix_bypass ;;
-0) menu ;;
-*) netflix_bypass_menu ;;
-esac
-}
-enable_udp_boost() {
-clear
-echo "กำลังเปิด UDP Boost..."
-
-# Queue ลด latency
-sysctl -w net.core.default_qdisc=fq
-
-# TCP (ไม่กระทบ UDP แต่ช่วยเสถียร)
-sysctl -w net.ipv4.tcp_congestion_control=bbr
-
-# UDP Buffer (ลด packet loss)
-sysctl -w net.core.rmem_max=26214400
-sysctl -w net.core.wmem_max=26214400
-sysctl -w net.core.rmem_default=26214400
-sysctl -w net.core.wmem_default=26214400
-
-# ลด throttle UDP
-sysctl -w net.ipv4.udp_mem="65536 131072 262144"
-
-# ICMP (ช่วยเกมบางค่าย)
-sysctl -w net.ipv4.icmp_ratelimit=0
-
-# บันทึกถาวร
-sysctl -p
-
-touch /etc/x3ui/udp_boost
-
-echo "เปิด UDP Boost เรียบร้อย"
-read -p "กด Enter..."
-udp_boost_menu
-}
-disable_udp_boost() {
-clear
-echo "กำลังปิด UDP Boost..."
-
-sysctl -w net.core.default_qdisc=pfifo_fast
-sysctl -w net.ipv4.tcp_congestion_control=cubic
-
-sysctl -w net.core.rmem_max=212992
-sysctl -w net.core.wmem_max=212992
-sysctl -w net.core.rmem_default=212992
-sysctl -w net.core.wmem_default=212992
-
-sysctl -w net.ipv4.udp_mem="4096 87380 6291456"
-sysctl -w net.ipv4.icmp_ratelimit=1000
-
-sysctl -p
-
-rm -f /etc/x3ui/udp_boost
-
-echo "ปิด UDP Boost เรียบร้อย"
-read -p "กด Enter..."
-udp_boost_menu
-}
-check_udp_boost() {
-clear
-echo "สถานะ UDP Boost:"
-if [ -f /etc/x3ui/udp_boost ]; then
-  echo "▶ เปิดอยู่"
-else
-  echo "▶ ปิดอยู่"
-fi
-echo ""
-sysctl net.core.default_qdisc
-sysctl net.ipv4.tcp_congestion_control
-sysctl net.core.rmem_max
-sysctl net.core.wmem_max
-sysctl net.ipv4.udp_mem
-read -p "กด Enter..."
-udp_boost_menu
-}
-udp_boost_menu() {
-clear
-echo "================================="
-echo "   เร่งความเร็ว UDP (Game / Call)"
-echo "================================="
-echo "1) เปิด UDP Boost"
-echo "2) ปิด UDP Boost"
-echo "3) ตรวจสอบสถานะ"
-echo "0) กลับ"
-echo "================================="
-read -p "เลือกเมนู: " udp
-case $udp in
-1) enable_udp_boost ;;
-2) disable_udp_boost ;;
-3) check_udp_boost ;;
-0) show_menu ;;
-*) udp_boost_menu ;;
-esac
-}
-enable_anti_ddos() {
-clear
-echo "กำลังเปิด Anti-DDoS..."
-
-# Flush old rules
-iptables -F
-iptables -X
-
-# Default policy
-iptables -P INPUT DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT
-
-# Allow established
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A INPUT -i lo -j ACCEPT
-
-# Allow SSH
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-
-# Allow Web / Xray
-iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-
-# SYN Flood Protection
-iptables -N SYN_FLOOD
-iptables -A INPUT -p tcp --syn -j SYN_FLOOD
-iptables -A SYN_FLOOD -m limit --limit 10/s --limit-burst 20 -j RETURN
-iptables -A SYN_FLOOD -j DROP
-
-# Connection limit per IP
-iptables -A INPUT -p tcp -m connlimit --connlimit-above 30 -j DROP
-
-# ICMP limit (ping flood)
-iptables -A INPUT -p icmp -m limit --limit 1/s -j ACCEPT
-iptables -A INPUT -p icmp -j DROP
-
-# Save rules
-iptables-save > /etc/iptables.rules
-touch /etc/x3ui/anti_ddos
-
-echo "เปิด Anti-DDoS เรียบร้อย"
-read -p "กด Enter..."
-anti_ddos_menu
-}
-enable_anti_ddos() {
-clear
-echo "กำลังเปิด Anti-DDoS..."
-
-# Flush old rules
-iptables -F
-iptables -X
-
-# Default policy
-iptables -P INPUT DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT
-
-# Allow established
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A INPUT -i lo -j ACCEPT
-
-# Allow SSH
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-
-# Allow Web / Xray
-iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-
-# SYN Flood Protection
-iptables -N SYN_FLOOD
-iptables -A INPUT -p tcp --syn -j SYN_FLOOD
-iptables -A SYN_FLOOD -m limit --limit 10/s --limit-burst 20 -j RETURN
-iptables -A SYN_FLOOD -j DROP
-
-# Connection limit per IP
-iptables -A INPUT -p tcp -m connlimit --connlimit-above 30 -j DROP
-
-# ICMP limit (ping flood)
-iptables -A INPUT -p icmp -m limit --limit 1/s -j ACCEPT
-iptables -A INPUT -p icmp -j DROP
-
-# Save rules
-iptables-save > /etc/iptables.rules
-touch /etc/x3ui/anti_ddos
-
-echo "เปิด Anti-DDoS เรียบร้อย"
-read -p "กด Enter..."
-anti_ddos_menu
-}
-disable_anti_ddos() {
-clear
-echo "กำลังปิด Anti-DDoS..."
-
-iptables -F
-iptables -X
-iptables -P INPUT ACCEPT
-iptables -P FORWARD ACCEPT
-iptables -P OUTPUT ACCEPT
-
-rm -f /etc/x3ui/anti_ddos
-iptables-save > /etc/iptables.rules
-
-echo "ปิด Anti-DDoS เรียบร้อย"
-read -p "กด Enter..."
-anti_ddos_menu
-}
-check_anti_ddos() {
-clear
-if [ -f /etc/x3ui/anti_ddos ]; then
-  echo "สถานะ: ✅ Anti-DDoS เปิดอยู่"
-else
-  echo "สถานะ: ❌ Anti-DDoS ปิดอยู่"
-fi
-echo ""
-iptables -L -n -v --line-numbers
-read -p "กด Enter..."
-anti_ddos_menu
-}
-anti_ddos_menu() {
-clear
-echo "================================="
-echo "        Anti-DDoS Protection"
-echo "================================="
-echo "1) เปิด Anti-DDoS"
-echo "2) ปิด Anti-DDoS"
-echo "3) ตรวจสอบสถานะ"
-echo "0) กลับ"
-echo "================================="
-read -p "เลือกเมนู: " dd
-case $dd in
-1) enable_anti_ddos ;;
-2) disable_anti_ddos ;;
-3) check_anti_ddos ;;
-0) menu ;;
-*) anti_ddos_menu ;;
-esac
-}
-enable_bt() {
-clear
-echo "กำลังเปิดบล็อก BitTorrent..."
-
-# ล้างของเก่า
-iptables -D FORWARD -j BT_BLOCK 2>/dev/null
-iptables -D OUTPUT  -j BT_BLOCK 2>/dev/null
-iptables -F BT_BLOCK 2>/dev/null
-iptables -X BT_BLOCK 2>/dev/null
-
-# สร้าง chain
-iptables -N BT_BLOCK
-
-# Signature ของ BitTorrent
-iptables -A BT_BLOCK -m string --algo bm --string "BitTorrent" -j DROP
-iptables -A BT_BLOCK -m string --algo bm --string "peer_id=" -j DROP
-iptables -A BT_BLOCK -m string --algo bm --string ".torrent" -j DROP
-iptables -A BT_BLOCK -m string --algo bm --string "announce" -j DROP
-iptables -A BT_BLOCK -m string --algo bm --string "info_hash" -j DROP
-
-# Port ที่ใช้บ่อย
-iptables -A BT_BLOCK -p tcp --dport 6881:6999 -j DROP
-iptables -A BT_BLOCK -p udp --dport 6881:6999 -j DROP
-
-# Apply
-iptables -A FORWARD -j BT_BLOCK
-iptables -A OUTPUT  -j BT_BLOCK
-
-# สถานะ
-touch /etc/x3ui/bittorrent_block
-iptables-save > /etc/iptables.rules
-
-echo "เปิดบล็อก BitTorrent เรียบร้อย"
-read -p "กด Enter..."
-bittorrent_menu
-}
-disable_bt() {
-clear
-echo "กำลังปิดบล็อก BitTorrent..."
-
-iptables -D FORWARD -j BT_BLOCK 2>/dev/null
-iptables -D OUTPUT  -j BT_BLOCK 2>/dev/null
-iptables -F BT_BLOCK 2>/dev/null
-iptables -X BT_BLOCK 2>/dev/null
-
-rm -f /etc/x3ui/bittorrent_block
-iptables-save > /etc/iptables.rules
-
-echo "ปิดบล็อก BitTorrent เรียบร้อย"
-read -p "กด Enter..."
-bittorrent_menu
-}
-check_bt() {
-clear
-if [ -f /etc/x3ui/bittorrent_block ]; then
-  echo "สถานะ: ✅ บล็อก BitTorrent เปิดอยู่"
-else
-  echo "สถานะ: ❌ ยังไม่เปิดบล็อก BitTorrent"
-fi
-echo ""
-iptables -L BT_BLOCK -n -v 2>/dev/null
-read -p "กด Enter..."
-bittorrent_menu
-}
-bittorrent_menu() {
-clear
-echo "================================="
-echo "   Block BitTorrent Protection"
-echo "================================="
-echo "1) เปิดบล็อก BitTorrent"
-echo "2) ปิดบล็อก BitTorrent"
-echo "3) ตรวจสอบสถานะ"
-echo "0) กลับ"
-echo "================================="
-read -p "เลือกเมนู: " bt
-case $bt in
-1) enable_bt ;;
-2) disable_bt ;;
-3) check_bt ;;
-0) show_menu ;;
-*) bittorrent_menu ;;
-esac
-}
-disable_firewall() {
-clear
-echo -e "🔴 กำลังปิด Firewall..."
-
-ufw disable >/dev/null 2>&1
-systemctl stop ufw >/dev/null 2>&1
-systemctl disable ufw >/dev/null 2>&1
-
-systemctl stop firewalld >/dev/null 2>&1
-systemctl disable firewalld >/dev/null 2>&1
-
-iptables -F
-iptables -X
-iptables -t nat -F
-iptables -t mangle -F
-iptables -P INPUT ACCEPT
-iptables -P FORWARD ACCEPT
-iptables -P OUTPUT ACCEPT
-
-ip6tables -F >/dev/null 2>&1
-ip6tables -P INPUT ACCEPT >/dev/null 2>&1
-ip6tables -P FORWARD ACCEPT >/dev/null 2>&1
-ip6tables -P OUTPUT ACCEPT >/dev/null 2>&1
-
-systemctl stop netfilter-persistent >/dev/null 2>&1
-systemctl disable netfilter-persistent >/dev/null 2>&1
-
-echo -e "✅ ปิด Firewall เรียบร้อยแล้ว"
-sleep 2
-firewall_menu
-}
-enable_firewall() {
-clear
-echo -e "🟢 กำลังเปิด Firewall..."
-
-ufw reset -y
-ufw default deny incoming
-ufw default allow outgoing
-
-# SSH
-ufw allow 22/tcp
-
-# Web
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 55/tcp
-
-# Xray (ตัวอย่าง)
-ufw allow 443
-ufw allow 8080
-ufw allow 8443
-ufw allow 2053
-ufw allow 2083
-
-ufw --force enable
-
-systemctl enable ufw >/dev/null 2>&1
-systemctl start ufw >/dev/null 2>&1
-
-echo -e "✅ เปิด Firewall เรียบร้อยแล้ว"
-sleep 2
-firewall_menu
-}
-check_firewall() {
-clear
-echo -e "🔍 สถานะ Firewall"
-echo -e "━━━━━━━━━━━━━━━━━━━━"
-echo -e "📌 UFW Status:"
-ufw status
-echo ""
-echo -e "📌 IPTABLES:"
-iptables -L -n
-echo ""
-read -p "กด Enter เพื่อกลับ..."
-firewall_menu
-}
-firewall_menu() {
-clear
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e " 🔥 จัดการ Firewall (UFW / IPTABLES)"
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e " [1] 🔴 ปิด Firewall ทั้งหมด"
-echo -e " [2] 🟢 เปิด Firewall (อนุญาต SSH / Xray)"
-echo -e " [3] 🔍 ตรวจสอบสถานะ Firewall"
-echo -e " [0] ↩ กลับเมนูหลัก"
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-read -p " เลือกเมนู : " fw
-
-case $fw in
-1)
-disable_firewall
-;;
-2)
-enable_firewall
-;;
-3)
-check_firewall
-;;
-0)
-show_menu
-;;
-*)
-echo "❌ เลือกไม่ถูกต้อง"
-sleep 1
-firewall_menu
-;;
-esac
-}
-
-auto_reboot_menu() {
-clear
-echo -e "==============================="
-echo -e "   AUTO REBOOT (03:00 น.)"
-echo -e "==============================="
-echo -e "1. เปิด Auto Reboot (ตี 3)"
-echo -e "2. ปิด Auto Reboot"
-echo -e "3. ตรวจสอบสถานะ"
-echo -e "0. กลับเมนูหลัก"
-echo -e "==============================="
-read -p "เลือกเมนู: " ar
-
-case $ar in
-1)
-(crontab -l 2>/dev/null | grep -v "/sbin/reboot" ; echo "0 3 * * * /sbin/reboot") | crontab -
-echo -e "\n✅ เปิด Auto Reboot เวลา 03:00 น. เรียบร้อย"
-sleep 2
-auto_reboot_menu
-;;
-2)
-crontab -l 2>/dev/null | grep -v "/sbin/reboot" | crontab -
-echo -e "\n❌ ปิด Auto Reboot เรียบร้อย"
-sleep 2
-auto_reboot_menu
-;;
-3)
-if crontab -l 2>/dev/null | grep -q "/sbin/reboot"; then
-echo -e "\n🟢 Auto Reboot: เปิดอยู่ (03:00 น.)"
-else
-echo -e "\n🔴 Auto Reboot: ปิดอยู่"
-fi
-sleep 2
-auto_reboot_menu
-;;
-0)
-show_menu
-;;
-*)
-echo -e "\n❌ เลือกไม่ถูกต้อง"
-sleep 1
-auto_reboot_menu
-;;
-esac
 }
 
 show_menu() {
@@ -2596,18 +2246,11 @@ show_menu() {
 │  ${green}23.${plain} Enable BBR                                │
 │  ${green}24.${plain} Update Geo Files                          │
 │  ${green}25.${plain} Speedtest by Ookla                        │
-│  ${green}26.${plain} Auto Reboot VPS                           │
-│  ${green}27.${plain} ซ่อน VPN (Mobile Stealth Mode)           │
-│  ${green}28.${plain} Bypass Network & Routing                 │
-│  ${green}29.${plain} Netflix Bypass (Split Tunnel)               │
-│  ${green}30.${plain} เร่งความเร็ว UDP (Game / Call)             │
-│  ${green}31.${plain} ป้องกัน Anti-DDoS Protection               │
-│  ${green}32.${plain} บล็อก BitTorrent (กัน IP โดนแบน)           │
-│  ${green}33.${plain} 🔥 เปิด/ปิด Firewall                        │
+│  ${green}26.${plain} Auto ReBoot                              │
 ╚────────────────────────────────────────────────╝
 "
     show_status
-    echo && read -rp "Please enter your selection [0-33]: " num
+    echo && read -rp "Please enter your selection [0-26]: " num
 
     case "${num}" in
     0)
@@ -2689,31 +2332,10 @@ show_menu() {
         run_speedtest
         ;;
     26)
-      auto_reboot_menu
+        auto_reboot_menu
         ;;
-    27)
-      vpn_stealth_menu
-        ;;
-    28)
-      network_routing_menu
-        ;;
-        29)
-      netflix_bypass_menu
-        ;;
-        30)
-      udp_boost_menu
-        ;;
-        31)
-      anti_ddos_menu
-        ;;
-       32)
-      bittorrent_menu
-        ;;
-        33)
-      firewall_menu
-        ;;
-        *)
-        LOGE "Please enter the correct number [0-33]"
+    *)
+        LOGE "Please enter the correct number [0-25]"
         ;;
     esac
 }
