@@ -2515,6 +2515,51 @@ firewall_menu
 esac
 }
 
+auto_reboot_menu() {
+clear
+echo -e "==============================="
+echo -e "   AUTO REBOOT (03:00 น.)"
+echo -e "==============================="
+echo -e "1. เปิด Auto Reboot (ตี 3)"
+echo -e "2. ปิด Auto Reboot"
+echo -e "3. ตรวจสอบสถานะ"
+echo -e "0. กลับเมนูหลัก"
+echo -e "==============================="
+read -p "เลือกเมนู: " ar
+
+case $ar in
+1)
+(crontab -l 2>/dev/null | grep -v "/sbin/reboot" ; echo "0 3 * * * /sbin/reboot") | crontab -
+echo -e "\n✅ เปิด Auto Reboot เวลา 03:00 น. เรียบร้อย"
+sleep 2
+auto_reboot_menu
+;;
+2)
+crontab -l 2>/dev/null | grep -v "/sbin/reboot" | crontab -
+echo -e "\n❌ ปิด Auto Reboot เรียบร้อย"
+sleep 2
+auto_reboot_menu
+;;
+3)
+if crontab -l 2>/dev/null | grep -q "/sbin/reboot"; then
+echo -e "\n🟢 Auto Reboot: เปิดอยู่ (03:00 น.)"
+else
+echo -e "\n🔴 Auto Reboot: ปิดอยู่"
+fi
+sleep 2
+auto_reboot_menu
+;;
+0)
+show_menu
+;;
+*)
+echo -e "\n❌ เลือกไม่ถูกต้อง"
+sleep 1
+auto_reboot_menu
+;;
+esac
+}
+
 show_menu() {
     echo -e "
 ╔────────────────────────────────────────────────╗
@@ -2643,46 +2688,13 @@ show_menu() {
     25)
         run_speedtest
         ;;
-        26)
-  clear
-  echo "================================="
-  echo "   Auto Reboot VPS (03:00)"
-  echo "================================="
-  echo "1. เปิด Auto Reboot (ตี 3 ทุกวัน)"
-  echo "2. ปิด Auto Reboot"
-  echo "0. กลับเมนูหลัก"
-  read -p "เลือกเมนู: " reboot_choice
-
-  case $reboot_choice in
-    1)
-      # ลบ reboot เก่าก่อน ป้องกันซ้ำ
-      crontab -l 2>/dev/null | grep -v "/sbin/reboot" | crontab -
-
-      # ตั้ง reboot ตี 3
-      (crontab -l 2>/dev/null; echo "0 3 * * * /sbin/reboot") | crontab -
-
-      echo ""
-      echo "✅ เปิด Auto Reboot เวลา 03:00 ทุกวันแล้ว"
-      ;;
-    2)
-      crontab -l 2>/dev/null | grep -v "/sbin/reboot" | crontab -
-      echo ""
-      echo "❌ ปิด Auto Reboot เรียบร้อย"
-      ;;
-    0)
-    show_menu
-      ;;
-    *)
-      echo "❌ เลือกไม่ถูกต้อง"
-      ;;
-  esac
-  read -p "กด Enter เพื่อกลับเมนูหลัก"
-  show_menu
-  ;;
-       27)
+    26)
+      auto_reboot_menu
+        ;;
+    27)
       vpn_stealth_menu
         ;;
-       28)
+    28)
       network_routing_menu
         ;;
         29)
