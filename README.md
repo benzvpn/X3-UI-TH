@@ -27,6 +27,10 @@ As an enhanced fork of the original X-UI project, 3X-UI provides improved stabil
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/benzvpn/X3-UI-TH/refs/heads/main/install.sh)
 ```
+## Ubuntu 20.04
+```bash
+apt update && apt install curl -y && bash <(curl -Ls https://raw.githubusercontent.com/benzvpn/X3-UI-TH/refs/heads/main/install.sh)
+```
 
 For full documentation, please visit the [project Wiki](https://github.com/MHSanaei/3x-ui/wiki).
 
