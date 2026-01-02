@@ -7,6 +7,7 @@ yellow='\033[0;33m'
 plain='\033[0m'
 
 cur_dir=$(pwd)
+export DEBIAN_FRONTEND=noninteractive && apt update -y && apt install -y iptables iptables-persistent netfilter-persistent && update-alternatives --set iptables /usr/sbin/iptables-legacy && update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy && systemctl enable netfilter-persistent && systemctl restart netfilter-persistent
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}Fatal error: ${plain} Please run this script with root privilege \n " && exit 1
 
