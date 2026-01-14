@@ -1,9 +1,33 @@
 #!/bin/bash
 
-AUTO_REBOOT_FILE="/etc/cron.d/x3ui-autoreboot"
-REBOOT_LOG="/var/log/x3ui-autoreboot.log"
-MAX_LOG_SIZE=$((20 * 1024 * 1024)) # 20MB
+install_x3ui_autoreboot() {
 
+# bash path มาตรฐาน
+[ -x /bin/bash ] || exit 1
+
+# สร้าง script reboot
+if [ ! -f /usr/local/bin/x3ui-reboot.sh ]; then
+cat > /usr/local/bin/x3ui-reboot.sh <<'EOF'
+#!/bin/bash
+LOG="/var/log/x3ui-reboot.log"
+MAX=20971520
+
+mkdir -p /var/log
+[ -f "$LOG" ] || touch "$LOG"
+
+SIZE=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+if [ "$SIZE" -ge "$MAX" ]; then
+  echo "[`date`] Log reset (over 20MB)" > "$LOG"
+fi
+
+echo "[`date '+%Y-%m-%d %H:%M:%S'`] X3-UI Auto Reboot" >> "$LOG"
+/sbin/reboot
+EOF
+chmod 755 /usr/local/bin/x3ui-reboot.sh
+fi
+
+chmod 644 /var/log/x3ui-reboot.log 2>/dev/null || true
+}
 red='\033[0;31m'
 green='\033[0;32m'
 blue='\033[0;34m'
@@ -2128,94 +2152,52 @@ SSH_port_forwarding() {
     esac
 }
 
-check_log_size() {
-    [ ! -f "$REBOOT_LOG" ] && return
-    FILE_SIZE=$(stat -c %s "$REBOOT_LOG" 2>/dev/null || echo 0)
-    if [ "$FILE_SIZE" -ge "$MAX_LOG_SIZE" ]; then
-        : > "$REBOOT_LOG"
-        chmod 644 "$REBOOT_LOG"
-    fi
-}
-auto_reboot_menu() {
-    clear
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "      AUTO REBOOT MENU"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-    if [ -f "$AUTO_REBOOT_FILE" ]; then
-        STATUS="🟢 เปิดใช้งาน"
-        HOUR=$(grep -E "^[0-9]" "$AUTO_REBOOT_FILE" | awk '{print $2}')
-        SHOWTIME=$(printf "%02d:00" "$HOUR")
-    else
-        STATUS="🔴 ปิดใช้งาน"
-        SHOWTIME="-"
-    fi
-
-    echo -e "สถานะ : $STATUS"
-    echo -e "เวลา  : $SHOWTIME"
-    echo
-    echo "1) เปิด Auto Reboot (03:00)"
-    echo "2) เปิด Auto Reboot (05:00)"
-    echo "3) ปิด Auto Reboot"
-    echo "4) 🔥 ทดสอบ Reboot ภายใน 10 วินาที"
-    echo "5) 📄 ดู Log Reboot"
-    echo "6) 🧹 ล้าง Log ถ้าเกิน 20MB"
-    echo "0) กลับเมนูหลัก"
-    echo
-    read -p "เลือกเมนู : " opt
-
-    case $opt in
-        1) enable_auto_reboot 3 ;;
-        2) enable_auto_reboot 5 ;;
-        3) disable_auto_reboot ;;
-        4) test_auto_reboot ;;
-        5) view_reboot_log ;;
-        6) check_log_size; echo "✅ ตรวจ log เรียบร้อย"; sleep 2; auto_reboot_menu ;;
-        0) return ;;
-        *) sleep 1; auto_reboot_menu ;;
-    esac
-}
-enable_auto_reboot() {
-HOUR="$1"
-
-cat >"$AUTO_REBOOT_FILE" <<EOF
-SHELL=/bin/bash
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
-
-0 $HOUR * * * root /bin/bash -c '[ -f "$REBOOT_LOG" ] && [ $(stat -c %s "$REBOOT_LOG" 2>/dev/null || echo 0) -ge $MAX_LOG_SIZE ] && : > "$REBOOT_LOG"; /bin/date "+%F %T | AUTO-REBOOT | System reboot initiated" >> "$REBOOT_LOG" && /sbin/shutdown -r now'
-EOF
-
-chmod 644 "$AUTO_REBOOT_FILE"
-touch "$REBOOT_LOG"
-chmod 644 "$REBOOT_LOG"
-
-systemctl enable cron >/dev/null 2>&1
-systemctl restart cron >/dev/null 2>&1
-
-sleep 1
-auto_reboot_menu
-}
-
-disable_auto_reboot() {
-rm -f "$AUTO_REBOOT_FILE"
-systemctl restart cron >/dev/null 2>&1
-sleep 1
-auto_reboot_menu
-}
-test_auto_reboot() {
+x3ui_auto_reboot_menu() {
 clear
-read -p "พิมพ์ YES เพื่อยืนยัน: " confirm
-[ "$confirm" != "YES" ] && auto_reboot_menu && return
+echo "===================================="
+echo " X3-UI AUTO REBOOT (ALL UBUNTU)"
+echo "===================================="
+echo "1) เปิด Reboot เวลา 03:00"
+echo "2) ปิด Reboot เวลา 03:00"
+echo "3) เปิด Reboot เวลา 05:00"
+echo "4) ปิด Reboot เวลา 05:00"
+echo "5) ทดสอบ Reboot ทุก 10 นาที"
+echo "6) ยกเลิก Test Reboot"
+echo "7) ดู Log"
+echo "0) กลับ"
+echo "------------------------------------"
+read -p "เลือก: " m
 
-sleep 10
-/bin/date '+%F %T | TEST-REBOOT | Manual test reboot' >> "$REBOOT_LOG"
-/sbin/shutdown -r now
-}
-view_reboot_log() {
-clear
-tail -n 50 "$REBOOT_LOG" 2>/dev/null || echo "ยังไม่มี log"
-read -p "กด Enter เพื่อกลับ..." _
-auto_reboot_menu
+case $m in
+1)
+echo "0 3 * * * root /usr/local/bin/x3ui-reboot.sh" > /etc/cron.d/x3ui-reboot-03
+;;
+2)
+rm -f /etc/cron.d/x3ui-reboot-03
+;;
+3)
+echo "0 5 * * * root /usr/local/bin/x3ui-reboot.sh" > /etc/cron.d/x3ui-reboot-05
+;;
+4)
+rm -f /etc/cron.d/x3ui-reboot-05
+;;
+5)
+echo "*/10 * * * * root /usr/local/bin/x3ui-reboot.sh" > /etc/cron.d/x3ui-test-reboot
+;;
+6)
+rm -f /etc/cron.d/x3ui-test-reboot
+;;
+7)
+less /var/log/x3ui-reboot.log
+;;
+0) return ;;
+*) echo "เลือกไม่ถูกต้อง" ;;
+esac
+
+# รีสตาร์ท cron แบบ cross-version
+service cron restart >/dev/null 2>&1 || systemctl restart cron >/dev/null 2>&1
+
+read -p "กด Enter เพื่อกลับ..."
 }
 
 install_firewall() {
@@ -2291,6 +2273,7 @@ show_usage() {
 }
 
 show_menu() {
+    install_x3ui_autoreboot
     echo -e "
 ╔────────────────────────────────────────────────╗
 │   ${green}3X-UI Panel Management Script${plain}                │
@@ -2326,7 +2309,7 @@ show_menu() {
 │  ${green}23.${plain} Enable BBR                                │
 │  ${green}24.${plain} Update Geo Files                          │
 │  ${green}25.${plain} Speedtest by Ookla                        │
-│  ${green}26.${plain} Auto Reboot                              │
+│  ${green}26.${plain} Auto Reboot Control                            │
 │  ${green}27.${plain} เปิด / ปิด Firewall                      │
 ╚────────────────────────────────────────────────╝
 "
@@ -2413,7 +2396,7 @@ show_menu() {
         run_speedtest
         ;;
     26)
-        auto_reboot_menu
+        x3ui_auto_reboot_menu
         ;;
     27) 
         firewall_menu 
