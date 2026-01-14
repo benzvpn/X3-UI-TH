@@ -1,5 +1,9 @@
 #!/bin/bash
 
+AUTO_REBOOT_FILE="/etc/cron.d/x3ui-autoreboot"
+REBOOT_LOG="/var/log/x3ui-autoreboot.log"
+MAX_LOG_SIZE=$((20 * 1024 * 1024)) # 20MB
+
 red='\033[0;31m'
 green='\033[0;32m'
 blue='\033[0;34m'
@@ -2123,71 +2127,97 @@ SSH_port_forwarding() {
         ;;
     esac
 }
+
+check_log_size() {
+    [ ! -f "$REBOOT_LOG" ] && return
+    FILE_SIZE=$(stat -c %s "$REBOOT_LOG" 2>/dev/null || echo 0)
+    if [ "$FILE_SIZE" -ge "$MAX_LOG_SIZE" ]; then
+        : > "$REBOOT_LOG"
+        chmod 644 "$REBOOT_LOG"
+    fi
+}
 auto_reboot_menu() {
-clear
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "     AUTO REBOOT SERVER"
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e " 1) เปิด Auto Reboot (03:00)"
-echo -e " 2) เปิด Auto Reboot (05:00)"
-echo -e " 3) เปิด Auto Reboot (03:00 + 05:00)"
-echo -e " 4) ปิด Auto Reboot"
-echo -e " 5) ตรวจสอบสถานะ"
-echo -e " 0) กลับเมนูหลัก"
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-read -p "เลือกเมนู : " ar
-echo ""
+    clear
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "      AUTO REBOOT MENU"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-case $ar in
-1)
-cat >/etc/cron.d/x3ui-autoreboot <<EOF
-0 3 * * * root /sbin/reboot
+    if [ -f "$AUTO_REBOOT_FILE" ]; then
+        STATUS="🟢 เปิดใช้งาน"
+        HOUR=$(grep -E "^[0-9]" "$AUTO_REBOOT_FILE" | awk '{print $2}')
+        SHOWTIME=$(printf "%02d:00" "$HOUR")
+    else
+        STATUS="🔴 ปิดใช้งาน"
+        SHOWTIME="-"
+    fi
+
+    echo -e "สถานะ : $STATUS"
+    echo -e "เวลา  : $SHOWTIME"
+    echo
+    echo "1) เปิด Auto Reboot (03:00)"
+    echo "2) เปิด Auto Reboot (05:00)"
+    echo "3) ปิด Auto Reboot"
+    echo "4) 🔥 ทดสอบ Reboot ภายใน 10 วินาที"
+    echo "5) 📄 ดู Log Reboot"
+    echo "6) 🧹 ล้าง Log ถ้าเกิน 20MB"
+    echo "0) กลับเมนูหลัก"
+    echo
+    read -p "เลือกเมนู : " opt
+
+    case $opt in
+        1) enable_auto_reboot 3 ;;
+        2) enable_auto_reboot 5 ;;
+        3) disable_auto_reboot ;;
+        4) test_auto_reboot ;;
+        5) view_reboot_log ;;
+        6) check_log_size; echo "✅ ตรวจ log เรียบร้อย"; sleep 2; auto_reboot_menu ;;
+        0) return ;;
+        *) sleep 1; auto_reboot_menu ;;
+    esac
+}
+enable_auto_reboot() {
+HOUR="$1"
+
+cat >"$AUTO_REBOOT_FILE" <<EOF
+SHELL=/bin/bash
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+0 $HOUR * * * root /bin/bash -c '[ -f "$REBOOT_LOG" ] && [ $(stat -c %s "$REBOOT_LOG" 2>/dev/null || echo 0) -ge $MAX_LOG_SIZE ] && : > "$REBOOT_LOG"; /bin/date "+%F %T | AUTO-REBOOT | System reboot initiated" >> "$REBOOT_LOG" && /sbin/shutdown -r now'
 EOF
-echo "✅ เปิด Auto Reboot เวลา 03:00 น. สำเร็จ"
-;;
 
-2)
-cat >/etc/cron.d/x3ui-autoreboot <<EOF
-0 5 * * * root /sbin/reboot
-EOF
-echo "✅ เปิด Auto Reboot เวลา 05:00 น. สำเร็จ"
-;;
+chmod 644 "$AUTO_REBOOT_FILE"
+touch "$REBOOT_LOG"
+chmod 644 "$REBOOT_LOG"
 
-3)
-cat >/etc/cron.d/x3ui-autoreboot <<EOF
-0 3 * * * root /sbin/reboot
-0 5 * * * root /sbin/reboot
-EOF
-echo "✅ เปิด Auto Reboot เวลา 03:00 และ 05:00 น."
-;;
+systemctl enable cron >/dev/null 2>&1
+systemctl restart cron >/dev/null 2>&1
 
-4)
-rm -f /etc/cron.d/x3ui-autoreboot
-echo "❌ ปิด Auto Reboot เรียบร้อย"
-;;
-
-5)
-if [ -f /etc/cron.d/x3ui-autoreboot ]; then
-echo "📌 สถานะ : เปิดใช้งาน"
-cat /etc/cron.d/x3ui-autoreboot
-else
-echo "📌 สถานะ : ปิดใช้งาน"
-fi
-;;
-
-0)
-show_menu
-;;
-
-*)
-echo "❌ เลือกไม่ถูกต้อง"
-;;
-esac
-
-echo ""
-read -p "กด Enter เพื่อกลับ..." 
+sleep 1
 auto_reboot_menu
 }
+
+disable_auto_reboot() {
+rm -f "$AUTO_REBOOT_FILE"
+systemctl restart cron >/dev/null 2>&1
+sleep 1
+auto_reboot_menu
+}
+test_auto_reboot() {
+clear
+read -p "พิมพ์ YES เพื่อยืนยัน: " confirm
+[ "$confirm" != "YES" ] && auto_reboot_menu && return
+
+sleep 10
+/bin/date '+%F %T | TEST-REBOOT | Manual test reboot' >> "$REBOOT_LOG"
+/sbin/shutdown -r now
+}
+view_reboot_log() {
+clear
+tail -n 50 "$REBOOT_LOG" 2>/dev/null || echo "ยังไม่มี log"
+read -p "กด Enter เพื่อกลับ..." _
+auto_reboot_menu
+}
+
 install_firewall() {
     apt update -y
     apt install ufw -y
@@ -2296,7 +2326,7 @@ show_menu() {
 │  ${green}23.${plain} Enable BBR                                │
 │  ${green}24.${plain} Update Geo Files                          │
 │  ${green}25.${plain} Speedtest by Ookla                        │
-│  ${green}26.${plain} Auto ReBoot                              │
+│  ${green}26.${plain} Auto Reboot                              │
 │  ${green}27.${plain} เปิด / ปิด Firewall                      │
 ╚────────────────────────────────────────────────╝
 "
