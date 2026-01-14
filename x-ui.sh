@@ -1,31 +1,36 @@
 #!/bin/bash
 
+mkdir -p /usr/local/bin
+
+cat > /usr/local/bin/x3ui-reboot.sh <<'EOF'
+echo "[`date`] TEST OK" >> /var/log/x3ui-reboot.log
+EOF
+
+chmod +x /usr/local/bin/x3ui-reboot.sh
 install_x3ui_autoreboot() {
 
-# bash path มาตรฐาน
-[ -x /bin/bash ] || exit 1
+echo "[x3-ui] install auto reboot..."
 
-# สร้าง script reboot
-if [ ! -f /usr/local/bin/x3ui-reboot.sh ]; then
+mkdir -p /usr/local/bin
+mkdir -p /var/log
+
 cat > /usr/local/bin/x3ui-reboot.sh <<'EOF'
 #!/bin/bash
 LOG="/var/log/x3ui-reboot.log"
 MAX=20971520
 
-mkdir -p /var/log
 [ -f "$LOG" ] || touch "$LOG"
 
 SIZE=$(wc -c < "$LOG" 2>/dev/null || echo 0)
 if [ "$SIZE" -ge "$MAX" ]; then
-  echo "[`date`] Log reset (over 20MB)" > "$LOG"
+  echo "[`date`] Log reset (20MB)" > "$LOG"
 fi
 
 echo "[`date '+%Y-%m-%d %H:%M:%S'`] X3-UI Auto Reboot" >> "$LOG"
 /sbin/reboot
 EOF
-chmod 755 /usr/local/bin/x3ui-reboot.sh
-fi
 
+chmod 755 /usr/local/bin/x3ui-reboot.sh
 chmod 644 /var/log/x3ui-reboot.log 2>/dev/null || true
 }
 red='\033[0;31m'
@@ -2190,7 +2195,9 @@ rm -f /etc/cron.d/x3ui-test-reboot
 7)
 less /var/log/x3ui-reboot.log
 ;;
-0) return ;;
+0)
+ show_menu
+  ;;
 *) echo "เลือกไม่ถูกต้อง" ;;
 esac
 
