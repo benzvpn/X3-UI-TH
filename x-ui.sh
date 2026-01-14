@@ -2188,6 +2188,56 @@ echo ""
 read -p "กด Enter เพื่อกลับ..." 
 auto_reboot_menu
 }
+install_firewall() {
+    apt update -y
+    apt install ufw -y
+}
+enable_firewall() {
+    ufw allow 22/tcp
+    ufw allow 80/tcp
+    ufw allow 8080/tcp
+    ufw allow 443/tcp
+    ufw allow 2053/tcp
+    ufw allow 55/tcp
+    ufw --force enable
+    echo "✅ เปิด Firewall เรียบร้อย"
+    show_menu
+}
+disable_firewall() {
+    if ! command -v ufw >/dev/null 2>&1; then
+        echo "❌ ไม่พบ Firewall (UFW)"
+        return
+    fi
+
+    ufw disable
+    echo "✅ ปิด Firewall อย่างปลอดภัยแล้ว"
+    echo "ℹ สามารถเปิดกลับได้ทันทีด้วยเมนูเปิด Firewall"
+}
+status_firewall() {
+    ufw status numbered
+}
+firewall_menu() {
+clear
+echo "━━━━━━━━━━━━━━━━━━━━━━━"
+echo "   🔥 Firewall Manager"
+echo "━━━━━━━━━━━━━━━━━━━━━━━"
+echo "1) ติดตั้ง Firewall (UFW)"
+echo "2) เปิด Firewall"
+echo "3) ปิด Firewall"
+echo "4) ดูสถานะ Firewall"
+echo "0) กลับเมนูหลัก"
+echo "━━━━━━━━━━━━━━━━━━━━━━━"
+read -p "เลือกเมนู : " fw
+
+case $fw in
+1) install_firewall ;;
+2) enable_firewall ;;
+3) disable_firewall ;;
+4) status_firewall ;;
+0) show_menu ;;
+*) echo "เลือกไม่ถูกต้อง" ;;
+esac
+}
 show_usage() {
     echo -e "┌────────────────────────────────────────────────────────────────┐
 │  ${blue}x-ui control menu usages (subcommands):${plain}                       │
@@ -2247,10 +2297,11 @@ show_menu() {
 │  ${green}24.${plain} Update Geo Files                          │
 │  ${green}25.${plain} Speedtest by Ookla                        │
 │  ${green}26.${plain} Auto ReBoot                              │
+│  ${green}27.${plain} เปิด / ปิด Firewall                      │
 ╚────────────────────────────────────────────────╝
 "
     show_status
-    echo && read -rp "Please enter your selection [0-26]: " num
+    echo && read -rp "Please enter your selection [0-27]: " num
 
     case "${num}" in
     0)
@@ -2334,8 +2385,11 @@ show_menu() {
     26)
         auto_reboot_menu
         ;;
+    27) 
+        firewall_menu 
+        ;;
     *)
-        LOGE "Please enter the correct number [0-25]"
+        LOGE "Please enter the correct number [0-27]"
         ;;
     esac
 }
