@@ -2298,6 +2298,54 @@ set_timezone_thai() {
     show_menu
     
 }
+test_fast_com() {
+    clear
+    echo "🚀 Fast.com Speed Test (Netflix CDN)"
+    echo "==================================="
+
+    # ตรวจ curl
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "📦 Installing curl..."
+        apt update -y >/dev/null 2>&1
+        apt install -y curl >/dev/null 2>&1
+    fi
+
+    # ===== STEP 1 : ดึง TOKEN (ไม่ใช้ grep -P) =====
+    TOKEN=$(curl -s https://fast.com \
+        | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+
+    if [ -z "$TOKEN" ]; then
+        echo "❌ ไม่สามารถดึง TOKEN จาก fast.com ได้"
+        echo "   (อาจโดน block หรือ DNS มีปัญหา)"
+        read -p "กด Enter เพื่อกลับเมนู..."
+        return
+    fi
+
+    # ===== STEP 2 : ดึง Netflix OCA Server =====
+    SERVERS=$(curl -s \
+    "https://api.fast.com/netflix/speedtest/v2?https=true&token=$TOKEN&urlCount=5" \
+    | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
+
+    if [ -z "$SERVERS" ]; then
+        echo "❌ ไม่พบ Netflix CDN Server"
+        read -p "กด Enter เพื่อกลับเมนู..."
+        return
+    fi
+
+    echo "📡 Testing Servers"
+    echo "-----------------------------------"
+
+    # ===== STEP 3 : Download Test =====
+    for url in $SERVERS; do
+        speed=$(curl -o /dev/null -s -w "%{speed_download}" "$url")
+        mbps=$(awk "BEGIN {printf \"%.2f\", $speed/1024/1024*8}")
+        host=$(echo "$url" | cut -d/ -f3)
+        printf " %-40s %8s Mbps\n" "$host" "$mbps"
+    done
+
+    echo "==================================="
+    read -p "กด Enter เพื่อกลับเมนู..."
+}
 show_usage() {
     echo -e "┌────────────────────────────────────────────────────────────────┐
 │  ${blue}x-ui control menu usages (subcommands):${plain}                       │
@@ -2360,10 +2408,11 @@ show_menu() {
 │  ${green}26.${plain} Auto Reboot Control                            │
 │  ${green}27.${plain} เปิด / ปิด Firewall                      │
 │  ${green}28.${plain} ตั้งค่าเวลาไทย (Asia/Bangkok)                      │
+│  ${green}29.${plain} Test Speed Fast.com (Netflix)                        │
 ╚────────────────────────────────────────────────╝
 "
     show_status
-    echo && read -rp "Please enter your selection [0-28]: " num
+    echo && read -rp "Please enter your selection [0-29]: " num
 
     case "${num}" in
     0)
@@ -2453,8 +2502,11 @@ show_menu() {
     28) 
         set_timezone_thai 
         ;;
+     29) 
+        test_fast_com 
+        ;;   
     *)
-        LOGE "Please enter the correct number [0-28]"
+        LOGE "Please enter the correct number [0-29]"
         ;;
     esac
 }
