@@ -1,5 +1,8 @@
 #!/bin/bash
-
+NETFLIX_TABLE_ID=100
+NETFLIX_TABLE_NAME="netflix"
+NETFLIX_IP_FILE="/etc/netflix-ip.txt"
+NETFLIX_STATUS_FILE="/etc/netflix_bypass.status"
 mkdir -p /usr/local/bin
 
 cat > /usr/local/bin/x3ui-reboot.sh <<'EOF'
@@ -2298,53 +2301,90 @@ set_timezone_thai() {
     show_menu
     
 }
-test_fast_com() {
+create_netflix_ip() {
+cat > $NETFLIX_IP_FILE << 'EOF'
+23.246.0.0/18
+37.77.184.0/21
+45.57.0.0/17
+64.120.128.0/17
+66.197.128.0/17
+108.175.32.0/20
+198.38.96.0/19
+EOF
+}
+enable_netflix_bypass() {
+    echo "🚀 เปิด Bypass fast.com / Netflix CDN"
+
+    GW=$(ip route | grep default | awk '{print $3}')
+    DEV=$(ip route | grep default | awk '{print $5}')
+
+    if [[ -z "$GW" ]]; then
+        echo "❌ ไม่พบ Gateway"
+        return
+    fi
+
+    grep -q "$NETFLIX_TABLE_NAME" /etc/iproute2/rt_tables || \
+    echo "$NETFLIX_TABLE_ID $NETFLIX_TABLE_NAME" >> /etc/iproute2/rt_tables
+
+    create_netflix_ip
+
+    ip route flush table $NETFLIX_TABLE_NAME 2>/dev/null
+    ip rule del table $NETFLIX_TABLE_NAME 2>/dev/null
+
+    while read ip; do
+        ip route add $ip via $GW dev $DEV table $NETFLIX_TABLE_NAME
+        ip rule add to $ip table $NETFLIX_TABLE_NAME
+    done < $NETFLIX_IP_FILE
+
+    echo "ON" > $NETFLIX_STATUS_FILE
+    echo "✅ เปิดใช้งานสำเร็จ"
+}
+disable_netflix_bypass() {
+    echo "🛑 ปิด Bypass fast.com / Netflix CDN"
+
+    while read ip; do
+        ip rule del to $ip table $NETFLIX_TABLE_NAME 2>/dev/null
+    done < $NETFLIX_IP_FILE
+
+    ip route flush table $NETFLIX_TABLE_NAME 2>/dev/null
+    rm -f $NETFLIX_STATUS_FILE
+
+    echo "❌ ปิดเรียบร้อย"
+}
+netflix_bypass_status() {
+    if [[ -f "$NETFLIX_STATUS_FILE" ]]; then
+        echo "🟢 Netflix Bypass : ON"
+    else
+        echo "🔴 Netflix Bypass : OFF"
+    fi
+}
+netflix_bypass_menu() {
     clear
-    echo "🚀 Fast.com Speed Test (Netflix CDN)"
-    echo "==================================="
+    echo "=============================="
+    echo " Netflix / fast.com Bypass"
+    echo "=============================="
+    netflix_bypass_status
+    echo
+    echo "1. เปิด Netflix / fast.com Bypass"
+    echo "2. ปิด Netflix / fast.com Bypass"
+    echo "0. กลับเมนูหลัก"
+    echo "=============================="
+    read -p "เลือกเมนู: " choice
 
-    # ตรวจ curl
-    if ! command -v curl >/dev/null 2>&1; then
-        echo "📦 Installing curl..."
-        apt update -y >/dev/null 2>&1
-        apt install -y curl >/dev/null 2>&1
-    fi
-
-    # ===== STEP 1 : ดึง TOKEN (ไม่ใช้ grep -P) =====
-    TOKEN=$(curl -s https://fast.com \
-        | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
-
-    if [ -z "$TOKEN" ]; then
-        echo "❌ ไม่สามารถดึง TOKEN จาก fast.com ได้"
-        echo "   (อาจโดน block หรือ DNS มีปัญหา)"
-        read -p "กด Enter เพื่อกลับเมนู..."
-        return
-    fi
-
-    # ===== STEP 2 : ดึง Netflix OCA Server =====
-    SERVERS=$(curl -s \
-    "https://api.fast.com/netflix/speedtest/v2?https=true&token=$TOKEN&urlCount=5" \
-    | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
-
-    if [ -z "$SERVERS" ]; then
-        echo "❌ ไม่พบ Netflix CDN Server"
-        read -p "กด Enter เพื่อกลับเมนู..."
-        return
-    fi
-
-    echo "📡 Testing Servers"
-    echo "-----------------------------------"
-
-    # ===== STEP 3 : Download Test =====
-    for url in $SERVERS; do
-        speed=$(curl -o /dev/null -s -w "%{speed_download}" "$url")
-        mbps=$(awk "BEGIN {printf \"%.2f\", $speed/1024/1024*8}")
-        host=$(echo "$url" | cut -d/ -f3)
-        printf " %-40s %8s Mbps\n" "$host" "$mbps"
-    done
-
-    echo "==================================="
-    read -p "กด Enter เพื่อกลับเมนู..."
+    case $choice in
+        1)
+            enable_netflix_bypass
+            read -p "กด Enter เพื่อกลับ..." ;;
+        2)
+            disable_netflix_bypass
+            read -p "กด Enter เพื่อกลับ..." ;;
+        0)
+            return ;;
+        *)
+            echo "❌ เลือกไม่ถูกต้อง"
+            sleep 1
+            netflix_bypass_menu ;;
+    esac
 }
 show_usage() {
     echo -e "┌────────────────────────────────────────────────────────────────┐
@@ -2408,7 +2448,7 @@ show_menu() {
 │  ${green}26.${plain} Auto Reboot Control                            │
 │  ${green}27.${plain} เปิด / ปิด Firewall                      │
 │  ${green}28.${plain} ตั้งค่าเวลาไทย (Asia/Bangkok)                      │
-│  ${green}29.${plain} Test Speed Fast.com (Netflix)                        │
+│  ${green}29.${plain} Netflix / fast.com Bypass                       │
 ╚────────────────────────────────────────────────╝
 "
     show_status
@@ -2503,7 +2543,7 @@ show_menu() {
         set_timezone_thai 
         ;;
      29) 
-        test_fast_com 
+        netflix_bypass_menu 
         ;;   
     *)
         LOGE "Please enter the correct number [0-29]"
