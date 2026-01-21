@@ -2205,6 +2205,7 @@ esac
 service cron restart >/dev/null 2>&1 || systemctl restart cron >/dev/null 2>&1
 
 read -p "กด Enter เพื่อกลับ..."
+show_menu
 }
 
 install_firewall() {
@@ -2256,6 +2257,46 @@ case $fw in
 0) show_menu ;;
 *) echo "เลือกไม่ถูกต้อง" ;;
 esac
+}
+set_timezone_thai() {
+    echo "🔧 ตั้งค่า Timezone เป็นประเทศไทย (Asia/Bangkok)"
+
+    # ===== Set Timezone =====
+    if command -v timedatectl >/dev/null 2>&1; then
+        timedatectl set-timezone Asia/Bangkok
+    else
+        ln -sf /usr/share/zoneinfo/Asia/Bangkok /etc/localtime
+        echo "Asia/Bangkok" > /etc/timezone
+    fi
+
+    # ===== Sync Time =====
+    echo "🔄 Sync เวลา (Ubuntu ทุกเวอร์ชัน)"
+
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y
+
+        # Ubuntu 22.04+ (ntpdate ถูกถอดออก)
+        if apt-cache show ntpsec-ntpdate >/dev/null 2>&1; then
+            apt-get install -y ntpsec-ntpdate
+            ntpdate pool.ntp.org
+        else
+            # Ubuntu เก่า (16.04 / 18.04)
+            apt-get install -y ntpdate
+            ntpdate pool.ntp.org
+        fi
+    fi
+
+    # ===== Enable NTP (systemd) =====
+    if command -v timedatectl >/dev/null 2>&1; then
+        timedatectl set-ntp true
+    fi
+
+    echo "✅ สถานะเวลา:"
+    date
+    timedatectl 2>/dev/null | grep -E "Time zone|NTP service|System clock"
+    read -p "กด Enter เพื่อกลับ..."
+    show_menu
+    
 }
 show_usage() {
     echo -e "┌────────────────────────────────────────────────────────────────┐
@@ -2318,10 +2359,11 @@ show_menu() {
 │  ${green}25.${plain} Speedtest by Ookla                        │
 │  ${green}26.${plain} Auto Reboot Control                            │
 │  ${green}27.${plain} เปิด / ปิด Firewall                      │
+│  ${green}28.${plain} ตั้งค่าเวลาไทย (Asia/Bangkok)                      │
 ╚────────────────────────────────────────────────╝
 "
     show_status
-    echo && read -rp "Please enter your selection [0-27]: " num
+    echo && read -rp "Please enter your selection [0-28]: " num
 
     case "${num}" in
     0)
@@ -2408,8 +2450,11 @@ show_menu() {
     27) 
         firewall_menu 
         ;;
+    28) 
+        set_timezone_thai 
+        ;;
     *)
-        LOGE "Please enter the correct number [0-27]"
+        LOGE "Please enter the correct number [0-28]"
         ;;
     esac
 }
