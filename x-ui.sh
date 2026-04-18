@@ -2178,139 +2178,14 @@ SSH_port_forwarding() {
         ;;
     esac
 }
-x3ui_auto_reboot() {
-
-CRON_FILE="/tmp/cron_xui"
-
-check_cron() {
-    crontab -l 2>/dev/null | grep -q "$1"
-}
-
-clear
-echo "===================================="
-echo " X3-UI AUTO REBOOT (ALL UBUNTU)"
-echo "===================================="
-echo "1) เปิด Reboot ทุก 3 วัน เวลา 03:00"
-echo "2) ปิด Reboot ทุก 3 วัน"
-echo "3) เปิด Reboot ทุก 7 วัน เวลา 03:00"
-echo "4) ปิด Reboot ทุก 7 วัน"
-echo "5) ทดสอบ Reboot ทุก 10 นาที"
-echo "6) ยกเลิก Test Reboot"
-echo "7) ดู Log"
-echo "0) กลับ"
-echo "------------------------------------"
-read -p "เลือก: " m
-
-case $m in
-
-1)
-if check_cron "#XUI-REBOOT-3D"; then
-    echo "⚠️ มี Reboot 3 วันอยู่แล้ว"
-    x3ui_auto_reboot
-else
-    crontab -l > $CRON_FILE 2>/dev/null
-    echo "0 3 */3 * * /sbin/reboot #XUI-REBOOT-3D" >> $CRON_FILE
-    crontab $CRON_FILE
-    echo "✅ เปิด Reboot ทุก 3 วัน เวลา 03:00"
-    x3ui_auto_reboot
-fi
-;;
-
-2)
-if check_cron "#XUI-REBOOT-3D"; then
-    crontab -l > $CRON_FILE 2>/dev/null
-    sed -i '/#XUI-REBOOT-3D/d' $CRON_FILE
-    crontab $CRON_FILE
-    echo "❌ ปิด Reboot ทุก 3 วันแล้ว"
-    x3ui_auto_reboot
-else
-    echo "⚠️ ยังไม่ได้เปิด Reboot 3 วัน"
-    x3ui_auto_reboot
-fi
-;;
-
-3)
-if check_cron "#XUI-REBOOT-7D"; then
-    echo "⚠️ มี Reboot 7 วันอยู่แล้ว"
-    x3ui_auto_reboot
-else
-    crontab -l > $CRON_FILE 2>/dev/null
-    echo "0 3 */7 * * /sbin/reboot #XUI-REBOOT-7D" >> $CRON_FILE
-    crontab $CRON_FILE
-    echo "✅ เปิด Reboot ทุก 7 วัน เวลา 03:00"
-    x3ui_auto_reboot
-fi
-;;
-
-4)
-if check_cron "#XUI-REBOOT-7D"; then
-    crontab -l > $CRON_FILE 2>/dev/null
-    sed -i '/#XUI-REBOOT-7D/d' $CRON_FILE
-    crontab $CRON_FILE
-    echo "❌ ปิด Reboot ทุก 7 วันแล้ว"
-    x3ui_auto_reboot
-else
-    echo "⚠️ ยังไม่ได้เปิด Reboot 7 วัน"
-    x3ui_auto_reboot
-fi
-;;
-
-5)
-if check_cron "#XUI-TEST-REBOOT"; then
-    echo "⚠️ Test Reboot เปิดอยู่แล้ว"
-    x3ui_auto_reboot
-else
-    crontab -l > $CRON_FILE 2>/dev/null
-    echo "*/10 * * * * /sbin/reboot #XUI-TEST-REBOOT" >> $CRON_FILE
-    crontab $CRON_FILE
-    echo "⚠️ เปิด Test Reboot ทุก 10 นาที"
-    x3ui_auto_reboot
-fi
-;;
-
-6)
-if check_cron "#XUI-TEST-REBOOT"; then
-    crontab -l > $CRON_FILE 2>/dev/null
-    sed -i '/#XUI-TEST-REBOOT/d' $CRON_FILE
-    crontab $CRON_FILE
-    echo "❌ ยกเลิก Test Reboot แล้ว"
-    x3ui_auto_reboot
-else
-    echo "⚠️ ไม่มี Test Reboot ให้ยกเลิก"
-    x3ui_auto_reboot
-fi
-;;
-
-7)
-echo "📄 Log การรีบูต:"
-last reboot | head -n 10
-;;
-
-0)
-show_menu
-return
-;;
-
-*)
-echo "❌ เลือกไม่ถูกต้อง"
-x3ui_auto_reboot
-;;
-
-esac
-
-service cron restart >/dev/null 2>&1 || systemctl restart cron >/dev/null 2>&1
-
-read -p "กด Enter เพื่อกลับ..."
-x3ui_auto_reboot
-}
 
 x3ui_auto_reboot_menu() {
 clear
 echo "===================================="
 echo " X3-UI AUTO REBOOT (ALL UBUNTU)"
 echo "===================================="
-echo "1) เปิด Reboot เวลา 03:00"
-echo "2) ปิด Reboot เวลา 03:00"
+echo "1) เปิด Reboot ทุก 3 วัน เวลา 03:00"
+echo "2) ปิด Reboot ทุก 3 วัน เวลา 03:00"
 echo "3) เปิด Reboot เวลา 05:00"
 echo "4) ปิด Reboot เวลา 05:00"
 echo "5) ทดสอบ Reboot ทุก 10 นาที"
@@ -2324,19 +2199,19 @@ read -p "เลือก: " m
 case $m in
 1)
 if [ -f /etc/cron.d/x3ui-reboot-03 ]; then
-  echo "⚠️ มีการตั้ง Reboot 03:00 อยู่แล้ว"
+  echo "⚠️ มีการตั้ง Reboot ทุก 3 วัน เวลา 03:00 อยู่แล้ว"
 else
-  echo "0 3 * * * root /usr/local/bin/x3ui-reboot.sh" > /etc/cron.d/x3ui-reboot-03
-  echo "✅ เปิด Reboot เวลา 03:00 เรียบร้อย"
+  echo "0 3 */3 * * root /usr/local/bin/x3ui-reboot.sh" > /etc/cron.d/x3ui-reboot-03
+  echo "✅ เปิด Reboot ทุก 3 วัน เวลา 03:00 เรียบร้อย"
 fi
 ;;
 
 2)
 if [ -f /etc/cron.d/x3ui-reboot-03 ]; then
   rm -f /etc/cron.d/x3ui-reboot-03
-  echo "✅ ปิด Reboot เวลา 03:00 แล้ว"
+  echo "✅ ปิด Reboot ทุก 3 วัน เวลา 03:00 แล้ว"
 else
-  echo "⚠️ ยังไม่ได้เปิด Reboot 03:00"
+  echo "⚠️ ยังไม่ได้เปิด Reboot ทุก 3 วัน เวลา 03:00"
 fi
 ;;
 
@@ -2443,16 +2318,15 @@ show_menu
 return
 ;;
 
+
 8)
 clear
 echo "⚠️ ตรวจสอบสถานะ Auto Reboot..."
 
 FOUND=0
-
-# เช็คก่อนลบ
-[ -f /etc/cron.d/x3ui-reboot-03 ] && { echo "✔️ พบ Reboot 03:00 (กำลังทำงาน)"; FOUND=1; }
-[ -f /etc/cron.d/x3ui-reboot-05 ] && { echo "✔️ พบ Reboot 05:00 (กำลังทำงาน)"; FOUND=1; }
-[ -f /etc/cron.d/x3ui-test-reboot ] && { echo "✔️ พบ Test Reboot (กำลังทำงาน)"; FOUND=1; }
+[ -f /etc/cron.d/x3ui-reboot-03 ] && { echo "✔️ พบ Reboot 03:00 (ทุก 3 วัน)"; FOUND=1; }
+[ -f /etc/cron.d/x3ui-reboot-05 ] && { echo "✔️ พบ Reboot 05:00"; FOUND=1; }
+[ -f /etc/cron.d/x3ui-test-reboot ] && { echo "✔️ พบ Test Reboot"; FOUND=1; }
 
 if [ $FOUND -eq 0 ]; then
   echo "⚠️ ไม่มี Auto Reboot ที่เปิดใช้งานอยู่"
@@ -2472,7 +2346,6 @@ if [[ "$cf" == "y" || "$cf" == "Y" ]]; then
   echo "------------------------------------"
   echo "🔎 ตรวจสอบหลังปิด..."
 
-  # เช็คหลังลบ
   STILL=0
   [ -f /etc/cron.d/x3ui-reboot-03 ] && STILL=1
   [ -f /etc/cron.d/x3ui-reboot-05 ] && STILL=1
@@ -2502,13 +2375,11 @@ return
 ;;
 esac
 
-# รีสตาร์ท cron
 service cron restart >/dev/null 2>&1 || systemctl restart cron >/dev/null 2>&1
 
 read -p "กด Enter เพื่อกลับ..."
 show_menu
 }
-
 install_firewall() {
     apt update -y
     apt install ufw -y
@@ -2746,11 +2617,10 @@ show_menu() {
 │  ${green}26.${plain} Auto Reboot Control                            │
 │  ${green}27.${plain} เปิด / ปิด Firewall                      │
 │  ${green}28.${plain} ตั้งค่าเวลาไทย (Asia/Bangkok)                      │
-│  ${green}29.${plain} Auto Reboot Control  3วันแหละ7วัน                       │
 ╚────────────────────────────────────────────────╝
 "
     show_status
-    echo && read -rp "Please enter your selection [0-29]: " num
+    echo && read -rp "Please enter your selection [0-28]: " num
 
     case "${num}" in
     0)
@@ -2840,11 +2710,8 @@ show_menu() {
     28) 
         set_timezone_thai 
         ;;
-     29) 
-        x3ui_auto_reboot 
-        ;;   
     *)
-        LOGE "Please enter the correct number [0-29]"
+        LOGE "Please enter the correct number [0-28]"
         ;;
     esac
 }
