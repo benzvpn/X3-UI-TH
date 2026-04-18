@@ -17,16 +17,17 @@ echo "[x3-ui] install auto reboot..."
 mkdir -p /usr/local/bin
 mkdir -p /var/log
 
+# สคริปต์ reboot
 cat > /usr/local/bin/x3ui-reboot.sh <<'EOF'
 #!/bin/bash
 LOG="/var/log/x3ui-reboot.log"
-MAX=20971520
+MAX=524288000
 
 [ -f "$LOG" ] || touch "$LOG"
 
 SIZE=$(wc -c < "$LOG" 2>/dev/null || echo 0)
 if [ "$SIZE" -ge "$MAX" ]; then
-  echo "[`date`] Log reset (20MB)" > "$LOG"
+  echo "[`date '+%Y-%m-%d %H:%M:%S'`] Log reset (500MB)" > "$LOG"
 fi
 
 echo "[`date '+%Y-%m-%d %H:%M:%S'`] X3-UI Auto Reboot" >> "$LOG"
@@ -35,7 +36,25 @@ EOF
 
 chmod 755 /usr/local/bin/x3ui-reboot.sh
 chmod 644 /var/log/x3ui-reboot.log 2>/dev/null || true
+
+# สคริปต์ล้าง log
+cat > /usr/local/bin/x3ui-clean-log.sh <<'EOF'
+#!/bin/bash
+LOG="/var/log/x3ui-reboot.log"
+
+if [ -f "$LOG" ]; then
+  echo "[`date '+%Y-%m-%d %H:%M:%S'`] Log cleaned (7 days)" > "$LOG"
+fi
+EOF
+
+chmod 755 /usr/local/bin/x3ui-clean-log.sh
+
+# ตั้ง cron ล้าง log ทุก 7 วัน เวลา 09:00
+echo "0 9 */7 * * root /usr/local/bin/x3ui-clean-log.sh" > /etc/cron.d/x3ui-clean-log
+
+echo "✅ install x3-ui auto reboot + clean log (7 days 09:00) complete"
 }
+
 red='\033[0;31m'
 green='\033[0;32m'
 blue='\033[0;34m'
