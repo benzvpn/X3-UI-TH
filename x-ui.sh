@@ -2178,7 +2178,60 @@ SSH_port_forwarding() {
         ;;
     esac
 }
+xui_auto_restart_menu() {
+    clear
+    echo "===================================="
+    echo " X-UI AUTO RESTART (03:00 DAILY)"
+    echo "===================================="
+    echo "1) เปิด Auto Restart 03:00"
+    echo "2) ปิด Auto Restart"
+    echo "3) ตรวจสอบสถานะ"
+    echo "0) กลับ"
+    echo "===================================="
+    read -rp "เลือกเมนู: " choice
 
+    case $choice in
+        1)
+            echo "⚙️ กำลังตั้งค่า Auto Restart..."
+            cat > /etc/cron.d/xui-auto-restart <<EOF
+0 3 * * * root systemctl restart x-ui xray > /dev/null 2>&1
+EOF
+            chmod 644 /etc/cron.d/xui-auto-restart
+            echo "✅ ตั้งค่าเรียบร้อย (03:00 ทุกวัน)"
+            sleep 1
+            show_menu
+            ;;
+
+        2)
+            echo "⚠️ กำลังปิด Auto Restart..."
+            rm -f /etc/cron.d/xui-auto-restart
+            echo "✅ ปิดเรียบร้อย"
+            sleep 1
+            show_menu
+            ;;
+
+        3)
+            if [[ -f /etc/cron.d/xui-auto-restart ]]; then
+                echo "✅ Auto Restart: เปิดอยู่ (03:00 ทุกวัน)"
+                cat /etc/cron.d/xui-auto-restart
+            else
+                echo "❌ Auto Restart: ยังไม่เปิด"
+            fi
+            sleep 2
+            show_menu
+            ;;
+
+        0)
+            show_menu
+            ;;
+
+        *)
+            echo "❌ เลือกไม่ถูกต้อง"
+            sleep 1
+            show_menu
+            ;;
+    esac
+}
 x3ui_auto_reboot_menu() {
 clear
 echo "===================================="
@@ -2192,6 +2245,7 @@ echo "5) ทดสอบ Reboot ทุก 10 นาที"
 echo "6) ยกเลิก Test Reboot"
 echo "7) ดู Log"
 echo "8) ❌ ปิด Auto Reboot ทั้งหมด"
+echo "9) Auto Restart x-ui (03:00)"
 echo "0) กลับ"
 echo "------------------------------------"
 read -p "เลือก: " m
@@ -2365,6 +2419,10 @@ show_menu
 return
 ;;
 
+9)
+xui_auto_restart_menu
+;;
+
 0)
  show_menu
  return
@@ -2380,6 +2438,7 @@ service cron restart >/dev/null 2>&1 || systemctl restart cron >/dev/null 2>&1
 read -p "กด Enter เพื่อกลับ..."
 show_menu
 }
+
 install_firewall() {
     apt update -y
     apt install ufw -y
